@@ -23,3 +23,11 @@ go.work.sum
 
 # env file
 .env
+
+# Ignorar el rootfs extraido y assets pesados
+assets/
+assets/*
+!assets/.gitkeep
+
+# Ignorar binarios compilados
+minidocker/minidocker
