@@ -124,3 +124,19 @@ func (m *Manager) GetContainer(id string) (*Container, error) {
 
 	return &c, nil
 }
+
+// DeleteContainer valida el estado y elimina permanentemente los datos del contenedor
+func (m *Manager) DeleteContainer(id string) error {
+	c, err := m.GetContainer(id)
+	if err != nil {
+		return err
+	}
+
+	// Impedir el borrado si el contenedor sigue activo
+	if c.State == StateRunning {
+		return fmt.Errorf("el contenedor [%s] está en ejecución. Deténlo antes de eliminarlo", id)
+	}
+
+	containerDir := filepath.Join(m.baseDir, id)
+	return os.RemoveAll(containerDir)
+}
