@@ -1,22 +1,12 @@
 package main
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"os"
-	"path/filepath"
 
+	"minidocker/internal/container"
 	"minidocker/internal/isolation"
-	"minidocker/internal/storage"
 )
-
-// generateID crea un ID aleatorio de 12 caracteres
-func generateID() string {
-	bytes := make([]byte, 6)
-	_, _ = rand.Read(bytes)
-	return hex.EncodeToString(bytes)
-}
 
 func main() {
 	if len(os.Args) < 2 {
@@ -26,40 +16,35 @@ func main() {
 
 	switch os.Args[1] {
 	case "run":
-		absLower, err := filepath.Abs("assets/alpine")
-		if err != nil {
-			panic(err)
-		}
-
+		imagePath := "assets/alpine"
 		userCommand := os.Args[2:]
 		if len(userCommand) == 0 {
 			userCommand = []string{"/bin/sh"}
 		}
 
-		containerID := generateID()
+		// 1. Inicializar el gestor de contenedores
+		mgr := container.NewManager()
 
-		// 1. Inicializar y montar OverlayFS
-		driver := storage.NewOverlayDriver(containerID, absLower)
-		mergedRootFS, err := driver.Mount()
+		// 2. Crear entidad, generar ID único y persistir metadata inicial
+		c, err := mgr.CreateContainer(
+			imagePath,
+			userCommand,
+			container.WithMemoryLimit(100*1024*1024), // 100MB
+			container.WithPidsMax(20),                // 20 procesos
+		)
 		if err != nil {
-			fmt.Printf("Error montando storage: %v\n", err)
+			fmt.Printf("Error creando contenedor: %v\n", err)
 			os.Exit(1)
 		}
-		defer driver.Unmount() // Limpieza garantizada al finalizar
 
-		// 2. Límites de recursos
-		limits := isolation.CgroupLimits{
-			MemoryLimitBytes: 100 * 1024 * 1024, // 100MB
-			PidsMax:          20,
-		}
-
-		// 3. Ejecutar el contenedor usando mergedRootFS
-		if err := isolation.RunParent(containerID, mergedRootFS, limits, userCommand); err != nil {
-			fmt.Printf("Error: %v\n", err)
+		// 3. Ejecutar ciclo de vida (OverlayFS -> Namespaces -> Cgroups -> Cleanup)
+		if err := mgr.RunContainer(c); err != nil {
+			fmt.Printf("Error ejecutando contenedor: %v\n", err)
 			os.Exit(1)
 		}
 
 	case "__init__":
+		// Punto de entrada interno para el subproceso hijo aislado
 		rootfs := os.Args[2]
 		userCommand := os.Args[3:]
 
