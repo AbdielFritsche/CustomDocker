@@ -24,6 +24,9 @@ func Execute() {
 
 func init() {
 	rootCmd.AddCommand(newRunCmd())
+	rootCmd.AddCommand(newCreateCmd())
+	rootCmd.AddCommand(newStartCmd())
 	rootCmd.AddCommand(newPsCmd())
 	rootCmd.AddCommand(newRmCmd())
+	rootCmd.AddCommand(newPullCmd())
 }

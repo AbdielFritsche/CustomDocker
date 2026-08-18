@@ -11,18 +11,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var psDataRoot string
+
 func newPsCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "ps",
+	cmd := &cobra.Command{
+		Use:   "ps [flags]",
 		Short: "Lista los contenedores registrados y su estado actual",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			mgr := container.NewManager()
-			baseDir := "/var/lib/minidocker/containers"
+			mgr := container.NewManager(psDataRoot)
+			baseDir := psDataRoot
 
 			entries, err := os.ReadDir(baseDir)
 			if err != nil {
 				if os.IsNotExist(err) {
-					fmt.Println("No hay contenedores registrados.")
+					fmt.Println("No hay contenedores registrados en esa ruta.")
 					return nil
 				}
 				return err
@@ -40,7 +42,11 @@ func newPsCmd() *cobra.Command {
 					continue
 				}
 
-				cmdStr := filepath.Base(c.Config.Command[0])
+				cmdStr := ""
+				if len(c.Config.Command) > 0 {
+					cmdStr = filepath.Base(c.Config.Command[0])
+				}
+
 				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
 					c.Config.ID,
 					c.Config.Name,
@@ -52,4 +58,7 @@ func newPsCmd() *cobra.Command {
 			return w.Flush()
 		},
 	}
+
+	cmd.Flags().StringVar(&psDataRoot, "data-root", "/var/lib/minidocker/containers", "Ruta de almacenamiento")
+	return cmd
 }

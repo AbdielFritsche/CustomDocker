@@ -102,15 +102,29 @@ func RunChild(rootfs string, command []string) error {
 		return fmt.Errorf("error en PivotRoot: %w", err)
 	}
 
+	// 1. Asegurar /proc
+	_ = os.MkdirAll("/proc", 0755)
 	if err := syscall.Mount("proc", "/proc", "proc", 0, ""); err != nil {
 		return fmt.Errorf("error montando /proc: %w", err)
 	}
 	defer syscall.Unmount("/proc", 0)
 
+	// 2. Asegurar /dev/pts y permisos de terminal
 	_ = os.MkdirAll("/dev/pts", 0755)
 	_ = syscall.Mount("devpts", "/dev/pts", "devpts", 0, "")
 	defer syscall.Unmount("/dev/pts", 0)
 
+	// 3. Asegurar permisos correctos en directorios y dispositivos clave
+	_ = os.MkdirAll("/tmp", 1777)
+	_ = os.Chmod("/tmp", 01777)
+
+	// Asegurar /dev/null funcional con permisos 0666
+	if _, err := os.Stat("/dev/null"); err != nil {
+		_ = os.WriteFile("/dev/null", []byte{}, 0666)
+	}
+	_ = os.Chmod("/dev/null", 0666)
+
+	// 4. Buscar y ejecutar el binario solicitado
 	binaryPath, err := exec.LookPath(command[0])
 	if err != nil {
 		return fmt.Errorf("comando no encontrado dentro del rootfs: %w", err)

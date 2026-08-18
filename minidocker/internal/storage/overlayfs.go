@@ -18,8 +18,11 @@ type OverlayDriver struct {
 	MergedDir   string
 }
 
-func NewOverlayDriver(containerID, lowerDir string) *OverlayDriver {
-	base := filepath.Join(baseStoragePath, containerID)
+func NewOverlayDriver(containerID, lowerDir string, basePath string) *OverlayDriver {
+	if basePath == "" {
+		basePath = baseStoragePath
+	}
+	base := filepath.Join(basePath, containerID)
 	return &OverlayDriver{
 		ContainerID: containerID,
 		BasePath:    base,

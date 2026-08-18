@@ -39,16 +39,15 @@ func SetupBridge() error {
 		return fmt.Errorf("error levantando bridge: %w", err)
 	}
 
-	// Habilitar IP Forwarding global y enrutamiento en loopback
+	// 1. Habilitar IP Forwarding global
 	_ = exec.Command("sysctl", "-w", "net.ipv4.ip_forward=1").Run()
+
+	// 2. Permitir enrutamiento en localhost
 	_ = exec.Command("sysctl", "-w", "net.ipv4.conf.all.route_localnet=1").Run()
 	_ = exec.Command("sysctl", "-w", "net.ipv4.conf.default.route_localnet=1").Run()
 
-	// Regla general de salida NAT (MASQUERADE)
-	_ = exec.Command("iptables", "-t", "nat", "-C", "POSTROUTING", "-s", "172.19.0.0/16", "!", "-o", BridgeName, "-j", "MASQUERADE").Run()
-	if err := exec.Command("iptables", "-t", "nat", "-A", "POSTROUTING", "-s", "172.19.0.0/16", "!", "-o", BridgeName, "-j", "MASQUERADE").Run(); err != nil {
-		// Ignorar si ya existía
-	}
+	// 3. Regla general de salida NAT (MASQUERADE)
+	_ = exec.Command("iptables", "-t", "nat", "-A", "POSTROUTING", "-s", "172.19.0.0/16", "!", "-o", BridgeName, "-j", "MASQUERADE").Run()
 
 	return nil
 }

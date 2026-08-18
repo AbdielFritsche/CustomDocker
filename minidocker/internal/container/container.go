@@ -28,6 +28,7 @@ type Config struct {
 	Image       string                 `json:"image"`
 	Command     []string               `json:"command"`
 	RootFS      string                 `json:"rootfs"`
+	BasePath    string                 `json:"base_path"`
 	IP          string                 `json:"ip"`
 	PortMapping *PortMapping           `json:"port_mapping,omitempty"`
 	Limits      isolation.CgroupLimits `json:"limits"`
@@ -64,6 +65,14 @@ func WithPidsMax(pids int64) Option {
 func WithName(name string) Option {
 	return func(c *Config) {
 		c.Name = name
+	}
+}
+
+func WithBasePath(path string) Option {
+	return func(c *Config) {
+		if path != "" {
+			c.BasePath = path
+		}
 	}
 }
 
