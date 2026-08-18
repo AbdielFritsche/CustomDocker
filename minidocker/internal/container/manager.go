@@ -20,11 +20,10 @@ type Manager struct {
 }
 
 func NewManager() *Manager {
-	return &Manager {
+	return &Manager{
 		baseDir: defaultStateDir,
 	}
 }
-
 
 func generateID() string {
 	bytes := make([]byte, 6)
@@ -34,15 +33,15 @@ func generateID() string {
 
 func (m *Manager) CreateContainer(image string, cmd []string, opts ...Option) (*Container, error) {
 	id := generateID()
-	cfg := Config {
-		ID: id,
-		Name: id,
-		Image: image,
-		Command: cmd,
+	cfg := Config{
+		ID:        id,
+		Name:      id,
+		Image:     image,
+		Command:   cmd,
 		CreatedAt: time.Now(),
 		Limits: isolation.CgroupLimits{
 			MemoryLimitBytes: 100 * 1024 * 1024,
-			PidsMax: 20,
+			PidsMax:          20,
 		},
 	}
 
@@ -50,16 +49,16 @@ func (m *Manager) CreateContainer(image string, cmd []string, opts ...Option) (*
 		opt(&cfg)
 	}
 
-	container := &Container {
+	container := &Container{
 		Config: cfg,
-		State: StateCreated,
+		State:  StateCreated,
 	}
 
 	if err := m.saveMetadata(container); err != nil {
 		return nil, fmt.Errorf("Error guardando metadata: %w", err)
 	}
 
-	return container,nil
+	return container, nil
 }
 
 func (m *Manager) RunContainer(c *Container) error {
@@ -80,7 +79,15 @@ func (m *Manager) RunContainer(c *Container) error {
 	c.StartedAt = time.Now()
 	_ = m.saveMetadata(c)
 
-	err = isolation.RunParent(c.Config.ID, mergedRootFS, c.Config.Limits, c.Config.Command)
+	// Extraer puertos host y container
+	var hp, cp int
+	if c.Config.PortMapping != nil {
+		hp = c.Config.PortMapping.HostPort
+		cp = c.Config.PortMapping.ContainerPort
+	}
+
+	// Pasar hp y cp a RunParent
+	err = isolation.RunParent(c.Config.ID, mergedRootFS, c.Config.Limits, c.Config.Command, hp, cp)
 
 	c.StoppedAt = time.Now()
 	if err != nil {
@@ -96,7 +103,7 @@ func (m *Manager) RunContainer(c *Container) error {
 }
 
 func (m *Manager) saveMetadata(c *Container) error {
-	dir := filepath.Join(m.baseDir, c.Config.ID) 
+	dir := filepath.Join(m.baseDir, c.Config.ID)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
