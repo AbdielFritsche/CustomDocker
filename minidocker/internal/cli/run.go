@@ -8,50 +8,53 @@ import (
 )
 
 var (
-	memLimitMB int64
-	pidsMax    int64
-	contName   string
-	portMap    string
+	runImage    string
+	runRootPath string
+	runMemMB    int64
+	runPidsMax  int64
+	runPort     string
+	runName     string
 )
 
 func newRunCmd() *cobra.Command {
-	runCmd := &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "run [flags] <comando>",
-		Short: "Ejecuta un comando dentro de un nuevo contenedor aislado",
-		Args:  cobra.MinimumNArgs(0),
+		Short: "Crea y arranca un nuevo contenedor",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			imagePath := "assets/alpine"
 			userCommand := args
 			if len(userCommand) == 0 {
 				userCommand = []string{"/bin/sh"}
 			}
 
 			opts := []container.Option{
-				container.WithMemoryLimit(memLimitMB * 1024 * 1024),
-				container.WithPidsMax(pidsMax),
+				container.WithMemoryLimit(runMemMB * 1024 * 1024),
+				container.WithPidsMax(runPidsMax),
+				container.WithBasePath(runRootPath),
 			}
-			if contName != "" {
-				opts = append(opts, container.WithName(contName))
+			if runName != "" {
+				opts = append(opts, container.WithName(runName))
 			}
-			if portMap != "" {
-				opts = append(opts, container.WithPortMapping(portMap))
+			if runPort != "" {
+				opts = append(opts, container.WithPortMapping(runPort))
 			}
 
-			mgr := container.NewManager()
-			c, err := mgr.CreateContainer(imagePath, userCommand, opts...)
+			mgr := container.NewManager(runRootPath)
+			c, err := mgr.CreateContainer(runImage, userCommand, opts...)
 			if err != nil {
-				return fmt.Errorf("error inicializando contenedor: %w", err)
+				return fmt.Errorf("error al crear: %w", err)
 			}
 
-			fmt.Printf("Iniciando contenedor [%s] (Mem: %dMB, PIDs: %d, Port: %s)...\n", c.Config.ID, memLimitMB, pidsMax, portMap)
-			return mgr.RunContainer(c)
+			fmt.Printf("Contenedor [%s] creado. Arrancando...\n", c.Config.ID)
+			return mgr.StartContainer(c.Config.ID)
 		},
 	}
 
-	runCmd.Flags().Int64VarP(&memLimitMB, "memory", "m", 100, "Límite de memoria RAM en MegaBytes")
-	runCmd.Flags().Int64Var(&pidsMax, "pids-max", 20, "Límite máximo de procesos simultáneos")
-	runCmd.Flags().StringVarP(&contName, "name", "n", "", "Nombre identificador personalizado")
-	runCmd.Flags().StringVarP(&portMap, "publish", "p", "", "Mapeo de puertos host:container (ej. 8080:80)")
+	cmd.Flags().StringVarP(&runImage, "image", "i", "assets/alpine", "Ruta a la imagen base")
+	cmd.Flags().StringVar(&runRootPath, "data-root", "/var/lib/minidocker/containers", "Ruta de almacenamiento")
+	cmd.Flags().Int64VarP(&runMemMB, "memory", "m", 100, "Límite de RAM en MB")
+	cmd.Flags().Int64Var(&runPidsMax, "pids-max", 20, "Límite de procesos")
+	cmd.Flags().StringVarP(&runPort, "publish", "p", "", "Mapeo de puertos host:container (ej: 8080:80)")
+	cmd.Flags().StringVarP(&runName, "name", "n", "", "Nombre del contenedor")
 
-	return runCmd
+	return cmd
 }
