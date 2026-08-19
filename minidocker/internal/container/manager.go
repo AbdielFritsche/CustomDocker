@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"minidocker/internal/isolation"
@@ -77,10 +78,14 @@ func (m *Manager) StartContainer(idOrName string) error {
 	}
 
 	if c.State == StateRunning {
-		return fmt.Errorf("el contenedor [%s] ya está en ejecución", c.Config.Name)
+		if c.PID > 0 && syscall.Kill(c.PID, 0) == nil {
+			return fmt.Errorf("el contenedor [%s] ya está en ejecución (PID: %d)", c.Config.Name, c.PID)
+		}
+		c.State = StateStopped
+		c.PID = 0
+		_ = m.saveMetadata(c)
 	}
 
-	// Resolver imagen si es remota o local
 	lowerPath := c.Config.Image
 	if stat, err := os.Stat(lowerPath); err != nil || !stat.IsDir() {
 		downloadedPath, err := storage.PullImage(c.Config.Image)
@@ -113,19 +118,101 @@ func (m *Manager) StartContainer(idOrName string) error {
 		cp = c.Config.PortMapping.ContainerPort
 	}
 
-	err = isolation.RunParent(c.Config.ID, mergedRootFS, c.Config.Limits, c.Config.Command, hp, cp)
+	bridgeName := "minibr0"
+	bridgeIP := "172.19.0.1/16"
+	subnetCIDR := "172.19.0.0/16"
+	gatewayIP := "172.19.0.1"
+
+	if c.Config.BridgeName != "" {
+		bridgeName = c.Config.BridgeName
+		bridgeIP = c.Config.BridgeIP
+		subnetCIDR = c.Config.SubnetCIDR
+		gatewayIP = c.Config.GatewayIP
+	}
+
+	onReady := func(pid int, ip string) {
+		c.PID = pid
+		c.Config.IP = ip
+		c.Config.StaticIP = ip
+		_ = m.saveMetadata(c)
+	}
+
+	runErr := isolation.RunParent(
+		c.Config.ID,
+		mergedRootFS,
+		c.Config.Limits,
+		c.Config.Command,
+		c.Config.Env,
+		hp,
+		cp,
+		bridgeName,
+		bridgeIP,
+		subnetCIDR,
+		gatewayIP,
+		c.Config.StaticIP,
+		onReady,
+	)
 
 	c.StoppedAt = time.Now()
 	c.PID = 0
-	if err != nil {
+	if runErr != nil {
 		c.State = StateFailed
 		_ = m.saveMetadata(c)
-		return err
+		return runErr
 	}
 
 	c.State = StateStopped
 	c.ExitCode = 0
 	_ = m.saveMetadata(c)
+	return nil
+}
+
+func (m *Manager) RunContainer(c *Container) error {
+	return m.StartContainer(c.Config.ID)
+}
+
+func (m *Manager) StopContainer(idOrName string) error {
+	c, err := m.GetContainer(idOrName)
+	if err != nil {
+		return err
+	}
+
+	if c.State != StateRunning {
+		return fmt.Errorf("el contenedor [%s] no está en ejecución (estado: %s)", c.Config.Name, c.State)
+	}
+
+	cg := isolation.NewCgroupManager(c.Config.ID)
+	_ = cg.KillAll()
+
+	// 2. Si tenía un PID principal registrado, enviar señal al Process Group (-PID)
+	if c.PID > 0 {
+		_ = syscall.Kill(-c.PID, syscall.SIGTERM)
+		_ = syscall.Kill(c.PID, syscall.SIGTERM)
+
+		// Esperar hasta 2 segundos a que el proceso principal cierre
+		stopped := false
+		for i := 0; i < 4; i++ {
+			time.Sleep(500 * time.Millisecond)
+			if err := syscall.Kill(c.PID, 0); err != nil {
+				stopped = true
+				break
+			}
+		}
+
+		// Si sigue existiendo, forzar con SIGKILL
+		if !stopped {
+			_ = syscall.Kill(-c.PID, syscall.SIGKILL)
+			_ = syscall.Kill(c.PID, syscall.SIGKILL)
+		}
+	}
+
+	// 3. Limpiar cgroup y estado
+	_ = cg.Cleanup()
+	c.State = StateStopped
+	c.StoppedAt = time.Now()
+	c.PID = 0
+	_ = m.saveMetadata(c)
+
 	return nil
 }
 
@@ -135,20 +222,27 @@ func (m *Manager) DeleteContainer(idOrName string) error {
 		return err
 	}
 
-	if c.State == StateRunning {
+	// 1. Validar que no esté corriendo
+	if c.State == StateRunning && c.PID > 0 && syscall.Kill(c.PID, 0) == nil {
 		return fmt.Errorf("el contenedor [%s] está en ejecución. Deténlo antes de eliminarlo", c.Config.Name)
 	}
 
-	// Se borra usando su ID real de disco
-	return os.RemoveAll(filepath.Join(c.Config.BasePath, c.Config.ID))
-}
+	containerDir := filepath.Join(m.baseDir, c.Config.ID)
+	mergedDir := filepath.Join(containerDir, "merged")
 
-func (m *Manager) RunContainer(c *Container) error {
-	return m.StartContainer(c.Config.ID)
+	// 2. Desmontar de forma segura la capa OverlayFS (MNT_DETACH desliga el montaje aunque esté ocupado)
+	_ = syscall.Unmount(mergedDir, syscall.MNT_DETACH)
+
+	// 3. Eliminar todo el árbol de directorios de manera limpia
+	if err := os.RemoveAll(containerDir); err != nil {
+		return fmt.Errorf("error eliminando almacenamiento del contenedor: %w", err)
+	}
+
+	return nil
 }
 
 func (m *Manager) saveMetadata(c *Container) error {
-	dir := filepath.Join(c.Config.BasePath, c.Config.ID)
+	dir := filepath.Join(m.baseDir, c.Config.ID)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
@@ -158,7 +252,8 @@ func (m *Manager) saveMetadata(c *Container) error {
 		return err
 	}
 
-	return os.WriteFile(filepath.Join(dir, "config.json"), data, 0644)
+	configPath := filepath.Join(dir, "config.json")
+	return os.WriteFile(configPath, data, 0644)
 }
 
 func (m *Manager) GetContainer(idOrName string) (*Container, error) {
@@ -171,10 +266,10 @@ func (m *Manager) GetContainer(idOrName string) (*Container, error) {
 		}
 	}
 
-	// 2. Búsqueda por Nombre si el acceso directo falló
+	// 2. Búsqueda por Nombre
 	entries, err := os.ReadDir(m.baseDir)
 	if err != nil {
-		return nil, fmt.Errorf("contenedor [%s] no encontrado: %w", idOrName, err)
+		return nil, fmt.Errorf("contenedor no encontrado: %w", err)
 	}
 
 	for _, entry := range entries {

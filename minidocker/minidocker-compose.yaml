@@ -1,0 +1,39 @@
+version: "3.8"
+
+networks:
+  frontend:
+    subnet: "192.100.100.0/24"
+    gateway: "192.100.100.1"
+  backend:
+    subnet: "192.100.200.0/24"
+    gateway: "192.100.200.1"
+
+services:
+  web:
+    image: "nginx:alpine"
+    command: ["nginx", "-g", "daemon off;"]
+    ports:
+      - "8080:80"
+    networks:
+      frontend:
+        ipv4_address: "192.100.100.10"
+    memory: 256
+    pids_max: 50
+
+  api:
+    image: "ubuntu:22.04"
+    command: ["/bin/bash"]
+    networks:
+      backend:
+        ipv4_address: "192.100.200.15"
+    memory: 512
+    pids_max: 50
+
+  db:
+    image: "ubuntu:22.04"
+    command: ["/bin/bash"]
+    networks:
+      backend:
+        ipv4_address: "192.100.200.20"
+    memory: 512
+    pids_max: 50
