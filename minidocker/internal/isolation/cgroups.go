@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
+	"syscall"
 )
 
 const cgroupBasePath = "/sys/fs/cgroup/minidocker"
@@ -77,10 +79,32 @@ func (c *CgroupManager) Apply(pid int, limits CgroupLimits) error {
 	return nil
 }
 
+func (c *CgroupManager) KillAll() error {
+	killFile := filepath.Join(c.Path, "cgroup.kill")
+	if _, err := os.Stat(killFile); err == nil {
+		return os.WriteFile(killFile, []byte("1"), 0644)
+	}
+
+	// Fallback para cgroups v2 si cgroup.kill no estuviera disponible:
+	// Leer todos los PIDs restantes en cgroup.procs y enviarles SIGKILL
+	procsFile := filepath.Join(c.Path, "cgroup.procs")
+	data, err := os.ReadFile(procsFile)
+	if err == nil {
+		lines := strings.Split(string(data), "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if p, err := strconv.Atoi(line); err == nil && p > 0 {
+				_ = syscall.Kill(p, syscall.SIGKILL)
+			}
+		}
+	}
+	return nil
+}
+
 // Cleanup elimina el directorio del cgroup tras finalizar el contenedor
 func (c *CgroupManager) Cleanup() error {
 	if _, err := os.Stat(c.Path); err == nil {
-		return os.Remove(c.Path)
+		_ = os.Remove(c.Path)
 	}
 	return nil
 }

@@ -3,22 +3,22 @@ package network
 import (
 	"fmt"
 	"net"
+	"os/exec"
 	"runtime"
 
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"
 )
 
-// SetupContainerNetwork crea el par veth, mueve un extremo al PID y configura IP y rutas
-func SetupContainerNetwork(containerPID int, containerIP string) error {
-	// 1. Bloquear la goroutine actual a su hilo POSIX para que los cambios de netns no se mezclen
+// SetupContainerNetworkDynamic conecta el contenedor al bridge especificado y asigna su Gateway
+func SetupContainerNetworkDynamic(containerPID int, containerIP, bridgeName, gatewayIP string) error {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
 	vethHostName := fmt.Sprintf("veth0_%d", containerPID)
 	vethContName := fmt.Sprintf("veth1_%d", containerPID)
 
-	// 2. Crear par de interfaces virtuales
+	// 1. Crear par veth
 	vethLinkAttrs := netlink.NewLinkAttrs()
 	vethLinkAttrs.Name = vethHostName
 
@@ -31,105 +31,119 @@ func SetupContainerNetwork(containerPID int, containerIP string) error {
 		return fmt.Errorf("error creando par veth: %w", err)
 	}
 
-	// 3. Vincular extremo host al bridge
-	br, err := netlink.LinkByName(BridgeName)
+	// 2. Asociar al bridge en el host
+	br, err := netlink.LinkByName(bridgeName)
 	if err != nil {
-		return fmt.Errorf("error encontrando bridge: %w", err)
+		return fmt.Errorf("error localizando bridge %s: %w", bridgeName, err)
 	}
 
 	vethHost, err := netlink.LinkByName(vethHostName)
 	if err != nil {
-		return fmt.Errorf("error obteniendo extremo veth host: %w", err)
+		return fmt.Errorf("error obteniendo %s: %w", vethHostName, err)
 	}
 
 	if err := netlink.LinkSetMaster(vethHost, br); err != nil {
-		return fmt.Errorf("error asociando veth al bridge: %w", err)
+		return fmt.Errorf("error asociando %s al bridge %s: %w", vethHostName, bridgeName, err)
 	}
 
 	if err := netlink.LinkSetUp(vethHost); err != nil {
-		return fmt.Errorf("error levantando veth host: %w", err)
+		return fmt.Errorf("error levantando %s: %w", vethHostName, err)
 	}
 
-	// 4. Mover el extremo contenedor al namespace de red del subproceso
+	// Asegurar que el bridge esté levantado
+	_ = netlink.LinkSetUp(br)
+
+	// Desactivar filtrado de ruta inversa en el extremo host para evitar 'no route to host'
+	_ = exec.Command("sysctl", "-w", fmt.Sprintf("net.ipv4.conf.%s.rp_filter=0", vethHostName)).Run()
+	_ = exec.Command("sysctl", "-w", fmt.Sprintf("net.ipv4.conf.%s.rp_filter=0", bridgeName)).Run()
+
+	// 3. Mover al netns del contenedor
 	vethCont, err := netlink.LinkByName(vethContName)
 	if err != nil {
-		return fmt.Errorf("error obteniendo extremo veth container: %w", err)
+		return fmt.Errorf("error obteniendo %s: %w", vethContName, err)
 	}
 
 	if err := netlink.LinkSetNsPid(vethCont, containerPID); err != nil {
-		return fmt.Errorf("error moviendo veth al namespace de red: %w", err)
+		return fmt.Errorf("error moviendo veth al netns: %w", err)
 	}
 
-	// 5. Guardar namespace del host
+	// 4. Cambiar al netns del contenedor
 	hostNs, err := netns.Get()
 	if err != nil {
-		return fmt.Errorf("error obteniendo netns del host: %w", err)
+		return err
 	}
 	defer hostNs.Close()
 
-	// 6. Obtener namespace del contenedor
 	nsHandle, err := netns.GetFromPid(containerPID)
 	if err != nil {
-		return fmt.Errorf("error obteniendo netns del contenedor: %w", err)
+		return err
 	}
 	defer nsHandle.Close()
 
-	// 7. Cambiar el hilo al netns del contenedor
 	if err := netns.Set(nsHandle); err != nil {
-		return fmt.Errorf("error configurando netns: %w", err)
+		return err
 	}
-	defer netns.Set(hostNs) // Garantizar regreso al namespace del host
+	defer netns.Set(hostNs)
 
-	// 8. Renombrar la interfaz a 'eth0' dentro del contenedor y levantarla
+	// 5. Renombrar y levantar eth0
 	cLink, err := netlink.LinkByName(vethContName)
 	if err != nil {
-		return fmt.Errorf("error localizando veth dentro de netns: %w", err)
+		return err
 	}
 
 	if err := netlink.LinkSetName(cLink, "eth0"); err != nil {
-		return fmt.Errorf("error renombrando interfaz a eth0: %w", err)
+		return err
 	}
 
 	eth0, err := netlink.LinkByName("eth0")
 	if err != nil {
-		return fmt.Errorf("error obteniendo eth0: %w", err)
+		return err
 	}
 
-	// 9. Asignar IP al contenedor
+	// 6. Asignar la IP con su máscara
 	ipAddr, err := netlink.ParseAddr(containerIP)
 	if err != nil {
-		return fmt.Errorf("error parseando IP de contenedor: %w", err)
+		return fmt.Errorf("error parseando containerIP [%s]: %w", containerIP, err)
 	}
 
 	if err := netlink.AddrAdd(eth0, ipAddr); err != nil {
-		return fmt.Errorf("error asignando IP a eth0: %w", err)
+		return fmt.Errorf("error asignando IP %s a eth0: %w", containerIP, err)
 	}
 
 	if err := netlink.LinkSetUp(eth0); err != nil {
 		return fmt.Errorf("error levantando eth0: %w", err)
 	}
 
-	// 10. Levantar loopback (lo)
+	// 7. Levantar loopback (lo)
 	if lo, err := netlink.LinkByName("lo"); err == nil {
 		_ = netlink.LinkSetUp(lo)
 	}
 
-	// 11. Configurar Gateway por defecto apuntando al bridge
-	gw := net.ParseIP("172.19.0.1")
-	route := &netlink.Route{
+	// 8. Agregar RUTA DE ENLACE LOCAL (Scope Link) para la subred
+	_, ipNet, _ := net.ParseCIDR(containerIP)
+	linkRoute := &netlink.Route{
+		Scope:     netlink.SCOPE_LINK,
+		LinkIndex: eth0.Attrs().Index,
+		Dst:       ipNet,
+	}
+	_ = netlink.RouteAdd(linkRoute)
+
+	// 9. Agregar DEFAULT GATEWAY apuntando a la IP del Bridge
+	gw := net.ParseIP(gatewayIP)
+	defaultRoute := &netlink.Route{
 		Scope:     netlink.SCOPE_UNIVERSE,
 		LinkIndex: eth0.Attrs().Index,
 		Gw:        gw,
+		Dst:       nil,
 	}
 
-	if err := netlink.RouteAdd(route); err != nil {
-		return fmt.Errorf("error agregando default gateway: %w", err)
+	if err := netlink.RouteAdd(defaultRoute); err != nil {
+		return fmt.Errorf("error asignando default gateway %s: %w", gatewayIP, err)
 	}
 
 	return nil
 }
 
-// CleanupNetwork elimina las interfaces virtuales del contenedor
 func CleanupNetwork(containerPID int) {
 	vethHostName := fmt.Sprintf("veth0_%d", containerPID)
 	if link, err := netlink.LinkByName(vethHostName); err == nil {

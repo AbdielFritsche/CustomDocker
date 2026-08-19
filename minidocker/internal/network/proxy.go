@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 )
 
 // TCPProxy mantiene un socket abierto en el host y canaliza el tráfico al contenedor
@@ -14,7 +15,7 @@ type TCPProxy struct {
 
 // StartPortProxy abre un listener en todas las interfaces y canaliza tráfico bidireccional
 func StartPortProxy(hostPort, containerPort int, containerIP string) (*TCPProxy, error) {
-	hostAddr := fmt.Sprintf(":%d", hostPort)
+	hostAddr := fmt.Sprintf("0.0.0.0:%d", hostPort)
 	targetAddr := fmt.Sprintf("%s:%d", containerIP, containerPort)
 
 	listener, err := net.Listen("tcp", hostAddr)
@@ -39,7 +40,6 @@ func StartPortProxy(hostPort, containerPort int, containerIP string) (*TCPProxy,
 				}
 			}
 
-			// Manejar cada conexión cliente en una goroutine
 			go handleProxyConn(clientConn, targetAddr)
 		}
 	}()
@@ -52,17 +52,17 @@ func handleProxyConn(client net.Conn, targetAddr string) {
 
 	target, err := net.Dial("tcp", targetAddr)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "[Proxy Error] No se pudo conectar con el contenedor en %s: %v\n", targetAddr, err)
 		return
 	}
 	defer target.Close()
 
-	// Convertir a *net.TCPConn para poder cerrar escrituras independientemente
 	clientTCP, ok1 := client.(*net.TCPConn)
 	targetTCP, ok2 := target.(*net.TCPConn)
 
 	done := make(chan struct{}, 2)
 
-	// Cliente -> Contenedor
+	// Cliente (Host / Windows) -> Contenedor
 	go func() {
 		_, _ = io.Copy(target, client)
 		if ok2 {
@@ -71,7 +71,7 @@ func handleProxyConn(client net.Conn, targetAddr string) {
 		done <- struct{}{}
 	}()
 
-	// Contenedor -> Cliente
+	// Contenedor -> Cliente (Host / Windows)
 	go func() {
 		_, _ = io.Copy(client, target)
 		if ok1 {
@@ -80,7 +80,6 @@ func handleProxyConn(client net.Conn, targetAddr string) {
 		done <- struct{}{}
 	}()
 
-	// Esperar a que una de las dos vías termine
 	<-done
 }
 

@@ -27,9 +27,16 @@ type Config struct {
 	Name        string                 `json:"name"`
 	Image       string                 `json:"image"`
 	Command     []string               `json:"command"`
+	Env         []string               `json:"environment"`
 	RootFS      string                 `json:"rootfs"`
-	BasePath    string                 `json:"base_path"`
 	IP          string                 `json:"ip"`
+	BasePath    string                 `json:"base_path"`
+	Network     string                 `json:"network,omitempty"`
+	BridgeName  string                 `json:"bridge_name,omitempty"`
+	BridgeIP    string                 `json:"bridge_ip,omitempty"`
+	SubnetCIDR  string                 `json:"subnet_cidr,omitempty"`
+	GatewayIP   string                 `json:"gateway_ip,omitempty"`
+	StaticIP    string                 `json:"static_ip,omitempty"`
 	PortMapping *PortMapping           `json:"port_mapping,omitempty"`
 	Limits      isolation.CgroupLimits `json:"limits"`
 	CreatedAt   time.Time              `json:"created_at"`
@@ -47,24 +54,33 @@ type Container struct {
 
 type Option func(*Config)
 
-// WithMemoryLimit define el limite de memoria RAM
 func WithMemoryLimit(bytes int64) Option {
 	return func(c *Config) {
 		c.Limits.MemoryLimitBytes = bytes
 	}
 }
 
-// WithPidsMax define el limite maximo de procesos simultaneos
 func WithPidsMax(pids int64) Option {
 	return func(c *Config) {
 		c.Limits.PidsMax = pids
 	}
 }
 
-// WithName asigna un nombre personalizado al contenedor
 func WithName(name string) Option {
 	return func(c *Config) {
 		c.Name = name
+	}
+}
+
+func WithStaticIP(static_ip string) Option {
+	return func(c *Config) {
+		c.StaticIP = static_ip
+	}
+}
+
+func WithNetwork(networkName string) Option {
+	return func(c *Config) {
+		c.Network = networkName
 	}
 }
 
@@ -76,11 +92,29 @@ func WithBasePath(path string) Option {
 	}
 }
 
+func WithNetworkConfig(bridgeName, bridgeIP, subnetCIDR, gatewayIP string) Option {
+	return func(c *Config) {
+		c.BridgeName = bridgeName
+		c.BridgeIP = bridgeIP
+		c.SubnetCIDR = subnetCIDR
+		c.GatewayIP = gatewayIP
+	}
+}
+
 func WithPortMapping(mapping string) Option {
 	return func(c *Config) {
 		var hp, cp int
 		if _, err := fmt.Sscanf(mapping, "%d:%d", &hp, &cp); err == nil {
-			c.PortMapping = &PortMapping{HostPort: hp, ContainerPort: cp}
+			c.PortMapping = &PortMapping{
+				HostPort:      hp,
+				ContainerPort: cp,
+			}
 		}
+	}
+}
+
+func WithEnv(env []string) Option {
+	return func(c *Config) {
+		c.Env = env
 	}
 }

@@ -29,4 +29,7 @@ func init() {
 	rootCmd.AddCommand(newPsCmd())
 	rootCmd.AddCommand(newRmCmd())
 	rootCmd.AddCommand(newPullCmd())
+	rootCmd.AddCommand(newComposeCmd())
+	rootCmd.AddCommand(newStopCmd())
+	rootCmd.AddCommand(newNetworkCmd())
 }
