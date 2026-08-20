@@ -32,4 +32,7 @@ func init() {
 	rootCmd.AddCommand(newComposeCmd())
 	rootCmd.AddCommand(newStopCmd())
 	rootCmd.AddCommand(newNetworkCmd())
+	rootCmd.AddCommand(newExecCmd())
+	rootCmd.AddCommand(newLogsCmd())
+	rootCmd.AddCommand(newStatsCmd())
 }
