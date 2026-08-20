@@ -1,24 +1,22 @@
-# MiniDocker (Alpha)
+# Vessel Engine
 
-MiniDocker es un motor de contenedores de bajo nivel implementado en Go que interactúa directamente con el kernel de Linux. Su propósito es proveer aislamiento de procesos, gobernanza estricta de recursos de hardware y almacenamiento Copy-on-Write sin depender de daemons externos ni suites como Docker o containerd.
+Vessel es un motor y orquestador de contenedores de bajo nivel implementado en Go que interactúa directamente con el kernel de Linux. Su propósito es proveer aislamiento de procesos, gobernanza estricta de recursos de hardware, redes virtuales aisladas y almacenamiento Copy-on-Write (OverlayFS) sin depender de daemons en segundo plano ni suites externas como Docker o containerd.
 
-El proyecto está diseñado como una plataforma para micro-sandboxing, evaluación de código de baja latencia y observabilidad nativa del kernel.
+El proyecto cuenta con un CLI completo y un motor de composición (`compose up` / `compose down`) capaz de orquestar servicios complejos con bases de datos como MySQL y redirigir tráfico de red bidireccional entre el anfitrión y los contenedores.
 
 ---
 <p align="center">
-  <img src="https://img.shields.io/badge/Go-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go Version" />
+  <img src="https://img.shields.io/badge/Go-1.26.6+-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go Version" />
   <img src="https://img.shields.io/badge/Linux_Kernel-Syscalls-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux Kernel" />
   <img src="https://img.shields.io/badge/cgroups-v2-informational?style=for-the-badge&logo=linux-foundation&logoColor=white" alt="cgroups v2" />
   <img src="https://img.shields.io/badge/OverlayFS-Storage-lightgrey?style=for-the-badge" alt="OverlayFS" />
-  <img src="https://img.shields.io/badge/version-v0.2.0--dev-blue?style=for-the-badge" alt="Version Alpha" />
+  <img src="https://img.shields.io/badge/Networking-Bridge%20%7C%20veth%20%7C%20NAT-orange?style=for-the-badge" alt="Networking" />
   <img src="https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge" alt="License MIT" />
 </p>
 
 ---
 
-> **ADVERTENCIA DE SEGURIDAD / DISCLAIMER**  
-> Este proyecto se encuentra en fase **experimental**. MiniDocker invoca directamente llamadas al sistema (*syscalls*) privilegiadas y requiere ejecutarse con permisos de superusuario (`sudo`). **No está diseñado ni auditado para su uso en entornos de producción.** Se recomienda encarecidamente ejecutarlo dentro de una máquina virtual (VM) o un entorno aislado como WSL 2 para mitigar cualquier riesgo de configuración errónea sobre el sistema anfitrión.
-
+> **ADVERTENCIA DE SEGURIDAD / DISCLAIMER** > Este proyecto invoca directamente llamadas al sistema (*syscalls*) de Linux y manipulación de interfaces de red de bajo nivel, por lo que requiere privilegios de superusuario (`sudo`). **No está auditado para entornos de producción.** Se recomienda ejecutarlo en entornos de desarrollo aislados como WSL 2 o máquinas virtuales Linux.
 ---
 
 ## Tabla de Contenidos
@@ -29,9 +27,9 @@ El proyecto está diseñado como una plataforma para micro-sandboxing, evaluaci�
 4. [Estructura del Repositorio](#estructura-del-repositorio)
 5. [Requisitos del Sistema](#requisitos-del-sistema)
 6. [Instalación y Configuración](#instalación-y-configuración)
-7. [Guía de Uso y Opciones del CLI](#guía-de-uso-y-opciones-del-cli)
-8. [Verificación y Pruebas](#verificación-y-pruebas)
-9. [Diferenciadores y Casos de Uso](#diferenciadores-y-casos-de-uso)
+7. [Guía de Uso del CLI y Compose](#guía-de-uso-del-cli-y-compose)
+8. [Verificación y Casos Reales (MySQL)](#verificación-y-casos-reales-mysql)
+9. [Comparativa Técnica](#comparativa-técnica)
 10. [Roadmap de Desarrollo](#roadmap-de-desarrollo)
 11. [Contribuciones](#contribuciones)
 12. [Autor e Inspiración](#autor-e-inspiración)
@@ -41,142 +39,249 @@ El proyecto está diseñado como una plataforma para micro-sandboxing, evaluaci�
 
 ## Descripción del Proyecto
 
-MiniDocker implementa los bloques constructivos fundamentales de la contenerización moderna utilizando únicamente llamadas al sistema (*syscalls*) de Linux y la jerarquía unificada de **cgroups v2**. Permite ejecutar entornos aislados, reproducibles y seguros con tiempos de arranque mínimos.
+Vessel implementa los bloques constructivos de la contenerización moderna utilizando primitivas nativas del kernel de Linux: **Namespaces**, **cgroups v2**, montajes atómicos con **`pivot_root`**, pilas de **OverlayFS** y una pila de red virtual basada en **Linux Bridges**, pares **`veth`** y reglas de enrutamiento con **`iptables`** / proxies TCP en espacio de usuario.
 
 ---
 
 ## Estado del Proyecto
 
-**Fase Actual:** `Alpha v0.2.0-dev` (En desarrollo activo)
-
 | Componente | Estado | Implementación Técnica |
 | :--- | :--- | :--- |
-| Aislamiento de Procesos | Completo | Linux Namespaces (`PID`, `UTS`, `Mount`, `IPC`) |
-| Filesystem Jailing | Completo | `pivot_root`, bind mounts privados, pseudoterminales `/dev/pts` |
-| Gobernanza de Recursos | Completo | cgroups v2 (`memory.max`, `pids.max`) con controladores de subárbol |
-| Capas de Almacenamiento | Completo | Driver OverlayFS (`lowerdir`, `upperdir`, `workdir`, `merged`) |
-| Persistencia y Metadata | En Desarrollo | Registro del ciclo de vida en JSON (`/var/lib/minidocker/state.json`) |
-| Redes Virtuales | En Desarrollo | Linux Bridge (`minibr0`) + pares de interfaces `veth` + NAT con `iptables` |
-| Seguridad Sandbox | Planificado | Perfiles Seccomp-BPF y Namespaces de Usuario (`CLONE_NEWUSER`) |
-| Telemetría y CLI | Planificado | Subcomando `stats`, exportador Prometheus y TUI |
-
+| **Aislamiento de Procesos** | Completo | Namespaces Linux (`PID`, `UTS`, `Mount`, `IPC`, `NET`) sincronizados vía Unix Pipes |
+| **Filesystem Jailing** | Completo | `pivot_root`, bind mounts privados, pseudoterminales `/dev/pts` |
+| **Gobernanza de Recursos** | Completo | cgroups v2 (`memory.max`, `pids.max`) integrados en el ciclo de vida |
+| **Almacenamiento por Capas** | Completo | Driver OverlayFS (`lowerdir`, `upperdir`, `workdir`, `merged`) desacoplado de la eliminación |
+| **Redes Virtuales** | Completo | Linux Bridge (`vessel0`), pares `veth`, asignación de IP estática y proxy de reenvío de puertos |
+| **Gestión de Ciclo de Vida** | Completo | CLI con subcomandos `run`, `start`, `stop`, `rm`, `ps` y persistencia de metadata en disco |
+| **Orquestación Multi-Servicio** | Completo | Motor Compose (`compose up`, `compose down`) con soporte de rutas personalizadas (`-f`) |
+| **Interacción Dinámica** | En Desarrollo | Subcomandos `exec` (`unix.Setns`), `logs` persistentes y `stats` de cgroups v2 |
+| **Seguridad Sandbox** | Planificado | Perfiles Seccomp-BPF, Capabilities dropping y User Namespaces (`CLONE_NEWUSER`) |
 ---
 
 ## Características Principales
 
-* **Aislamiento por Linux Namespaces:**
-  * `PID`: El proceso principal del contenedor se ejecuta como PID 1 en su propio espacio de nombres.
-  * `UTS`: Asignación de hostname independiente sin afectar al sistema anfitrión.
-  * `Mount (NS)`: Espacio privado de puntos de montaje mediante propagación `MS_PRIVATE`.
-  * `IPC`: Segmentación de memoria compartida, colas de mensajes y semáforos POSIX/SysV.
-* **Confinamiento Seguro del Sistema de Archivos (`pivot_root`):**
-  * Reemplazo atómico de la raíz del sistema de archivos mediante `syscall.PivotRoot`.
-  * Montaje independiente de `/proc` y pseudoterminales `/dev/pts` para soporte interactivo de terminales.
-* **Control de Recursos con cgroups v2:**
-  * Prevención de ataques de denegación de servicio (*fork bombs*) mediante la restricción de subprocesos con `pids.max`.
-  * Control del límite de memoria con `memory.max` y activación automática del *OOM Killer* del kernel.
-* **Almacenamiento por Capas (OverlayFS):**
-  * Preservación e inmutabilidad del sistema de archivos base de solo lectura (`lowerdir`).
-  * Espacio de escritura efímero (`upperdir`) y limpieza atómica al finalizar la ejecución del contenedor.
-
+* **Aislamiento Integral por Namespaces:**
+  * `PID`: El proceso corre como PID 1 dentro de su árbol aislado de tareas.
+  * `NET`: Pila de red completamente aislada con su propia interfaz `lo` y extremo `veth`.
+  * `UTS` & `Mount`: Asignación de hostname (`vessel`) y aislamiento de puntos de montaje mediante propagación `MS_PRIVATE`.
+* **Almacenamiento Copy-on-Write (OverlayFS):**
+  * Capa base inmutable (`lowerdir`) compartida.
+  * Espacio de escritura efímero (`upperdir`) y limpieza atómica coordinada por el gestor de contenedores.
+* **Redes Virtuales y Exposición de Puertos:**
+  * Creación y gestión de bridges virtuales en el host.
+  * Conexión punto a punto mediante pares `veth` inyectados en el namespace de red del subproceso.
+  * Exposición de puertos (`-p host:container`) con proxies bidireccionales y soporte de salida a internet mediante `/etc/resolv.conf`.
+* **Orquestador Compose Nativo:**
+  * Parser y motor de ejecución declarativo para desplegar múltiples servicios interconectados a partir de archivos `compose.yaml` / `docker-compose.yml`.
 ---
 
 ## Estructura del Repositorio
 
 ```text
-minidocker/
+vessel/
 ├── cmd/
-│   ├── minidocker/          # Punto de entrada del CLI principal
-│   │   └── main.go
-│   └── runtimed/            # (Opcional) Daemon de ejecución interno
+│   └── vessel/                  # Punto de entrada del CLI y subproceso 'init'
 │       └── main.go
-├── internal/                # Lógica privada del runtime
-│   ├── cli/                 # Definición de comandos y parsing (Cobra)
-│   │   ├── run.go
+├── internal/                    # Lógica interna del motor
+│   ├── cli/                     # Comandos Cobra (run, start, stop, ps, rm, compose, network)
+│   │   ├── compose.go
 │   │   ├── exec.go
-│   │   └── root.go
-│   ├── container/           # Dominio y orquestación del contenedor
-│   │   ├── container.go     # Estructuras principales e interfaces
-│   │   ├── process.go       # Manejo del ciclo de vida del proceso
-│   │   └── manager.go       # State & container store (índices/metadata)
-│   ├── isolation/           # Interacción de bajo nivel con el Kernel
-│   │   ├── namespaces.go    # Flags y syscalls (PID, UTS, MNT, NET, IPC)
-│   │   ├── cgroups.go       # Manipulación de /sys/fs/cgroup (cgroups v2)
-│   │   └── pivot_root.go    # Syscalls de cambio de rootfs
-│   ├── storage/             # Gestión de capas de sistema de archivos
-│   │   ├── overlayfs.go     # Montajes OverlayFS (lowerdir, upperdir, merged)
-│   │   └── image.go         # Descarga y extracción de rootfs
-│   └── network/             # Configuración de red
-│       ├── bridge.go        # Linux bridge (br0)
-│       └── veth.go          # Interfaces veth y NAT
-├── pkg/                     # Paquetes reutilizables o utilidades públicas
-│   ├── logger/              # Logger personalizado con middleware/decoradores
-│   └── syscalls/            # Wrappers de bajo nivel
+│   │   ├── network.go
+│   │   ├── ps.go
+│   │   ├── rm.go
+│   │   ├── root.go
+│   │   ├── run.go
+│   │   ├── start.go
+│   │   └── stop.go
+│   ├── compose/                 # Motor de parseo y orquestación multi-servicio
+│   │   ├── engine.go
+│   │   └── spec.go
+│   ├── container/               # Gestión de ciclo de vida y metadata
+│   │   ├── container.go
+│   │   ├── manager.go
+│   │   └── process.go
+│   ├── isolation/               # Llamadas de bajo nivel al kernel
+│   │   ├── cgroups.go           # Controladores cgroups v2
+│   │   ├── namespaces.go        # Syscalls clone, unshare y pipes
+│   │   └── pivot_root.go        # Montajes y pivot_root
+│   ├── network/                 # Pila de redes virtuales
+│   │   ├── bridge.go            # Linux bridge
+│   │   ├── proxy.go             # Reenvío de puertos TCP
+│   │   └── veth.go              # Pares veth y enrutamiento
+│   └── storage/                 # Capa de almacenamiento
+│       ├── image.go             # Gestión de rootfs e imágenes
+│       └── overlayfs.go         # Driver OverlayFS
+├── pkg/                         # Paquetes auxiliares reutilizables
+│   ├── logger/                  # Logger estructurado
+│   └── syscalls/                # Envoltorios de llamadas al sistema
 ├── go.mod
 └── go.sum
 ```
 ---
 
-## Comparativa Técnica
+## Requisitos del Sistema
 
-| Herramienta | Nivel / Propósito | Dependencias Externas | Enfoque Principal |
-| :--- | :--- | :--- | :--- |
-| **MiniDocker** | Runtime ligero / Educativo | Ninguna (Go puro + Linux Kernel) | Aprendizaje de kernel internals, sandboxing efímero y observabilidad nativa. |
-| **Docker** | Plataforma completa (PaaS) | containerd, runc, dockerd | Ecosistema integral de desarrollo, empaquetado y despliegue de microservicios. |
-| **containerd** | Daemon de gestión de ciclo de vida | runc, OCI specifications | Gestión intermedia de imágenes, almacenamiento y supervisión de procesos. |
-| **runc** | Runtime OCI de bajo nivel | Linux kernel, libcontainer | Especificación estándar OCI para crear y correr contenedores a partir de bundles. |
-| **gVisor** | Sandbox con Kernel en User-Space | Sentry, Gofer | Aislamiento extremo mediante intercepción de syscalls en espacio de usuario. |
+* **Sistema Operativo:** Linux x86_64 nativo o WSL 2 (Ubuntu 22.04+ recomendado).
+* **Lenguaje:** Go 1.22 o superior.
+* **Subsistema de Control:** cgroups v2 montado en `/sys/fs/cgroup`.
+* **Privilegios:** Superusuario (`sudo`) para invocar `syscall.Mount`, `syscall.PivotRoot` y creación de interfaces virtuales.
 
----
-
-## Requisitos del sistema
-
-* **Sistema Operativo:** Linux de 64 bits o WSL 2 (Ubuntu 20.04+ recomendado).
-* **Lenguaje:** Go 1.20 o superior.
-* **Subsistema** del Kernel: cgroups v2 montado en /sys/fs/cgroup.
-* **Permisos:** Privilegios de superusuario (sudo) para ejecutar llamadas al sistema privilegiadas.
 ---
 
 ## Instalación y Configuración
 
-**Clonar el repositorio localmente:**
-
-```Bash
-git clone https://github.com/AbdielFritsche/CustomDocker
-cd CustomDocker/minidocker
-
+**1. Clonar el repositorio:**
+```bash
+git clone [https://github.com/TuUsuario/vessel.git](https://github.com/TuUsuario/vessel.git)
+cd vessel
 ```
-**Descargar y descomprimir la imagen base de prueba (Alpine Linux):**
-```Bash
+
+**2. Compilar el binario:**
+```bash
+go build -o vessel cmd/vessel/main.go
+```
+
+**3. Preparar una imagen base (ejemplo con Alpine Linux):**
+```bash
 mkdir -p assets/alpine
-curl -sL https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/x86_64/alpine-minirootfs-3.19.1-x86_64.tar.gz | tar -xz -C assets/alpine
-
+curl -sL [https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/x86_64/alpine-minirootfs-3.19.1-x86_64.tar.gz](https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/x86_64/alpine-minirootfs-3.19.1-x86_64.tar.gz) | tar -xz -C assets/alpine
 ```
 
-**Compilar el binario del runtime:**
-
-```Bash
-go build -o minidocker cmd/minidocker/main.go
-```
 ---
 
-## Guía de Uso y Opciones del CLI
+## Guía de Uso del CLI y Compose
 
-### Sintaxis General
+### Comandos de Contenedores
 
-```bash
-sudo ./minidocker run [FLAGS] <COMANDO> [ARGUMENTOS...]
-```
+* **Ejecutar un contenedor interactivo con límites de recursos y red:**
+  ```bash
+  sudo ./vessel run --memory 256m --pids-max 50 -p 8080:80 /bin/sh
+  ```
 
-### Tabla de Banderas (CLI Flags)
+* **Listar contenedores activos y finalizados:**
+  ```bash
+  sudo ./vessel ps -a
+  ```
 
-| Flag / Parámetro | Tipo | Valor por Defecto | Descripción | Estado |
-| :--- | :--- | :--- | :--- | :--- |
-| `<comando>` | `string` | `/bin/sh` | Binario a ejecutar dentro del contenedor aislado. | Implementado |
-| `--memory`, `-m` | `string` | `100m` | Límite máximo de RAM (`memory.max` en cgroups v2). | Planificado (Cobra CLI) |
-| `--pids-max` | `int` | `20` | Número máximo de tareas y procesos permitidos (`pids.max`). | Planificado (Cobra CLI) |
-| `--name` | `string` | `aleatorio` | Nombre identificador para el contenedor y su cgroup. | Planificado (Cobra CLI) |
-| `--ttl` | `duration` | `0` (desactivado) | Tiempo máximo de vida tras el cual el contenedor se destruye. | Planificado |
+* **Detener un contenedor en ejecución:**
+  ```bash
+  sudo ./vessel stop <CONTAINER_ID_O_NOMBRE>
+  ```
+
+* **Iniciar un contenedor detenido:**
+  ```bash
+  sudo ./vessel start <CONTAINER_ID_O_NOMBRE>
+  ```
+
+* **Eliminar un contenedor y limpiar sus capas de OverlayFS:**
+  ```bash
+  sudo ./vessel rm <CONTAINER_ID_O_NOMBRE>
+  ```
+
+### Orquestación con Compose
+
+Vessel incluye soporte nativo para levantar stacks completos declarados en YAML:
+
+* **Levantar servicios desde un archivo específico:**
+  ```bash
+  sudo ./vessel compose up -f deployments/mysql-compose.yaml
+  ```
+
+* **Detener y limpiar los servicios y redes creadas:**
+  ```bash
+  sudo ./vessel compose down -f deployments/mysql-compose.yaml
+  ```
+
+---
+
+## Verificación y Casos Reales (MySQL)
+
+Vessel es capaz de aislar y ejecutar cargas de trabajo de bases de datos complejas. Ejemplo de ejecución y validación de **MySQL Community Server**:
+
+1. **Definir el servicio en `compose.yaml`:**
+   ```yaml
+   version: "3.8"
+
+    networks:
+      backend:
+        subnet: "192.100.200.0/24"
+        gateway: "192.100.200.1"
+    
+    services:
+      database:
+        image: "mysql:latest"
+        environment:
+          - "MYSQL_ALLOW_EMPTY_PASSWORD=yes"
+          - "MYSQL_DATABASE=tienda"
+          - "MYSQL_USER=admin"
+          - "MYSQL_PASSWORD=secret123"
+        command:
+          - "/bin/sh"
+          - "-c"
+          - |
+            mkdir -p /var/lib/mysql /var/run/mysqld
+            chown -R 999:999 /var/lib/mysql /var/run/mysqld
+            chmod 777 /var/run/mysqld
+            if [ ! -d /var/lib/mysql/mysql ]; then
+              mysqld --initialize-insecure --user=mysql --datadir=/var/lib/mysql
+              mysqld --user=mysql --datadir=/var/lib/mysql --skip-networking --daemonize
+              sleep 3
+              mysql -u root -e "CREATE USER IF NOT EXISTS 'root'@'%' IDENTIFIED BY ''; GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' WITH GRANT OPTION; FLUSH PRIVILEGES;"
+              mysqladmin -u root shutdown
+            fi
+            mysqld --user=mysql --datadir=/var/lib/mysql --bind-address=0.0.0.0 --skip-log-bin
+        ports:
+          - "3306:3306"
+        networks:
+          backend:
+            ipv4_address: "192.100.200.50"
+        memory: 1024
+        pids_max: 150
+   ```
+
+2. **Levantar el servicio:**
+   ```bash
+   sudo ./vessel compose up -f compose.yaml
+   ```
+
+3. **Comprobar conectividad desde el anfitrión:**
+   ```bash
+   mysql -h 127.0.0.1 -P 3306 -u root -p
+   ```
+
+---
+
+### Tabla de Banderas y Parámetros (CLI Flags)
+
+#### 1. Banderas de Creación y Ejecución Directa (`run` / `create`)
+
+| Flag / Parámetro | Shorthand | Tipo | Valor por Defecto | Descripción | Estado |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `<comando>` | — | `[]string` | `["/bin/sh"]` | Binario y argumentos a ejecutar dentro del contenedor. | Implementado |
+| `--image` | `-i` | `string` | `"assets/alpine"` | Ruta a la imagen base (rootfs) o capa descargada. | Implementado |
+| `--port` | `-p` | `string` | `""` | Mapeo de puertos en formato `hostPort:containerPort` (ej. `3306:3306`). | Implementado |
+| `--name` | — | `string` | `""` (hash autogenerado) | Nombre único identificador para el contenedor. | Implementado |
+| `--memory` | `-m` | `int64` | `0` (sin límite) | Límite máximo de memoria RAM en MB (`memory.max` en cgroups v2). | Implementado |
+| `--pids-max` | — | `int64` | `0` (sin límite) | Límite máximo de procesos/hilos simultáneos (`pids.max`). | Implementado |
+| `--data-root` | — | `string` | `"/var/lib/minidocker/containers"` | Directorio donde se almacena el estado y capas OverlayFS. | Implementado |
+| `--ttl` | — | `duration` | `0` (desactivado) | Tiempo máximo de vida tras el cual el contenedor se autodestruye. | Planificado |
+
+---
+
+#### 2. Subcomandos del Ciclo de Vida, Red y Orquestación
+
+| Subcomando | Parámetro / Flag | Shorthand | Tipo | Valor por Defecto | Descripción | Estado |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **`compose up`** | `--file` | `-f` | `string` | `"minidocker-compose.yml"` | Parsea el YAML, levanta redes bridge y crea/arranca servicios. | Implementado |
+| **`compose down`** | `--file` | `-f` | `string` | `"minidocker-compose.yml"` | Detiene servicios asociados al archivo y elimina las redes virtuales. | Implementado |
+| **`pull`** | `<imagen:tag>` | — | `string` | *Requerido* | Descarga capas y ensambla un rootfs desde OCI Registry / Docker Hub. | Implementado |
+| **`start`** | `<ID>` | — | `string` | *Requerido* | Arranca un contenedor previamente creado o detenido conservando cambios. | Implementado |
+| **`stop`** | `<ID_o_Nombre>` | — | `string` | *Requerido* | Envía señal de detención al PID principal del contenedor. | Implementado |
+| **`rm`** | `<container_id>` | — | `string` | *Requerido* | Desmonta capas OverlayFS y elimina la metadata en disco. | Implementado |
+| **`network rm`** | `<network_name>` | — | `string` | *Requerido* | Desmantela el puente virtual Linux Bridge (`br_<nombre>`). | Implementado |
+| **`ps`** | `--data-root` | — | `string` | `"/var/lib/minidocker/containers"` | Lista contenedores registrados, imagen, IPs, puertos y estado. | Implementado |
+| **`exec`** | `<ID> <cmd>` | — | `string` | *Requerido* | Inyecta un proceso en los namespaces existentes (`unix.Setns`). | Planificado |
+| **`logs`** | `-f`, `--follow` | `-f` | `bool` | `false` | Streaming en vivo de la salida estándar y de errores (`stdout`/`stderr`). | Planificado |
 
 ### Ejemplos de Ejecución
 
@@ -243,40 +348,54 @@ go test -v ./...
 * **Observabilidad de Bajo Nivel:** Lectura directa de métricas de rendimiento desde cgroups v2 (memory.current, cpu.stat, io.stat) sin overhead de daemons secundarios.
 ---
 
+## Comparativa Técnica
+
+| Característica | Vessel | Docker | runc / Podman |
+| :--- | :--- | :--- | :--- |
+| **Arquitectura** | **Daemonless (Ejecución Directa)** | Cliente-Servidor (Daemon `dockerd`) | Daemonless (OCI Runtime) |
+| **Aislamiento** | Linux Namespaces + cgroups v2 | libcontainerd + namespaces | libcontainer / cgroups |
+| **Filesystem** | OverlayFS nativo en Go | OverlayFS / VFS / Btrfs | Rootfs montado por runtime |
+| **Networking** | Linux Bridge + veth + Proxies | Docker Bridge / CNI / IPVS | Netavark / CNI plugins |
+| **Dependencias** | **Cero dependencias externas** | Requiere suite de daemons | Requiere herramientas OCI |
+
+---
+
 ## Roadmap de Desarrollo
 
-- [x] Implementación de Namespaces base (`PID`, `UTS`, `Mount`, `IPC`).
-- [x] Confinamiento de raíz seguro mediante `pivot_root`.
-- [x] Control de recursos con cgroups v2 (`pids.max`, `memory.max`).
-- [x] Sistema de archivos por capas con OverlayFS.
-- [ ] Migración completa a Cobra CLI con soporte formal para flags (`--memory`, `--pids-max`, `--ttl`).
-- [ ] Interfaz de línea de comandos avanzada con subcomandos `ps`, `stop` y `rm`.
-- [ ] Conectividad de red mediante Linux Bridge y pares `veth`.
-- [ ] Modo Rootless con Namespaces de Usuario (`CLONE_NEWUSER`).
-- [ ] Integración de perfiles Seccomp para filtrado de syscalls.
-- [ ] Suite de pruebas de integración automatizadas.
-- [ ] Cliente nativo de OCI Registry para descarga directa de imágenes.
+- [x] Namespaces fundamentales (`PID`, `UTS`, `Mount`, `IPC`, `NET`).
+- [x] Jailing atómico de filesystem con `pivot_root`.
+- [x] Control de recursos con cgroups v2 (`memory.max`, `pids.max`).
+- [x] Driver desacoplado de almacenamiento con OverlayFS.
+- [x] Red virtual con Linux Bridge, pares `veth` y exposición de puertos.
+- [x] CLI avanzada con Cobra (`run`, `start`, `stop`, `rm`, `ps`, `network`).
+- [x] Orquestador multi-contenedor (`compose up`, `compose down`).
+- [ ] Ejecución de comandos en caliente (`exec`) mediante `unix.Setns`.
+- [ ] Streaming y persistencia de registros (`logs -f`).
+- [ ] DNS embebido interno para resolución por nombre de servicio en Compose.
+- [ ] Cliente nativo de descarga de capas OCI (Docker Hub / Quay.io).
+- [ ] Filtros de seguridad Seccomp-BPF y reducción de Linux Capabilities.
+- [ ] Soporte Rootless con User Namespaces (`CLONE_NEWUSER`).
 
 ---
 
 ## Contribuciones
 
-Las contribuciones, reportes de bugs y sugerencias de arquitectura son bienvenidos. Si deseas contribuir:
+Las contribuciones, reportes de bugs y sugerencias de arquitectura son bienvenidos:
 
 1. Haz un **Fork** del repositorio.
-2. Crea una rama para tu feature o fix (```bash git checkout -b feature/nueva-funcionalidad```).
-3. Realiza tus commits con mensajes descriptivos (```bash git commit -m 'feat: agregar soporte para limite de CPU'```).
-4. Haz push a tu rama (```bash git push origin feature/nueva-funcionalidad```).
-5. Abre un **Pull Request** detallando los cambios y las pruebas técnicas realizadas.
+2. Crea tu rama para la nueva feature (///bash git checkout -b feature/nueva-funcionalidad ///).
+3. Realiza tus commits detallando las llamadas al sistema involucradas (///bash git commit -m 'feat: soporte para syscall setns en exec' ///).
+4. Sube tu rama (///bash git push origin feature/nueva-funcionalidad ///).
+5. Abre un **Pull Request** explicando las pruebas realizadas.
 
 ---
 
 ## Autor e Inspiración
 
-Desarrollado por **Abdiel Fritsche Barajas** como un proyecto de profundización e ingeniería de sistemas para comprender a fondo el funcionamiento interno del kernel de Linux, la implementación de llamadas al sistema y los mecanismos que hacen posible la contenerización moderna sin depender de capas de abstracción preexistentes.
+Desarrollado por **Abdiel Fritsche Barajas** como un proyecto de ingeniería de sistemas y kernel de Linux para implementar desde cero las bases que hacen posible la contenerización moderna sin depender de capas de abstracción previas.
 
 ---
 
 ## Licencia
 
-Este proyecto está distribuido bajo la licencia MIT. Consulte el archivo `LICENSE` para más detalles.
+Este proyecto está bajo la Licencia MIT. Consulta el archivo `LICENSE` para más información.
