@@ -18,7 +18,7 @@ var (
 
 func newRunCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "run [flags] <comando>",
+		Use:   "run [flags] <comando> [argumentos...]",
 		Short: "Crea y arranca un nuevo contenedor",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			userCommand := args
@@ -48,6 +48,9 @@ func newRunCmd() *cobra.Command {
 			return mgr.StartContainer(c.Config.ID)
 		},
 	}
+
+	// Esto evita que Cobra intente parsear flags como -c, -v, -u que pertenezcan al comando interno
+	cmd.Flags().SetInterspersed(false)
 
 	cmd.Flags().StringVarP(&runImage, "image", "i", "assets/alpine", "Ruta a la imagen base")
 	cmd.Flags().StringVar(&runRootPath, "data-root", "/var/lib/minidocker/containers", "Ruta de almacenamiento")

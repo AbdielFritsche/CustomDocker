@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -66,9 +67,18 @@ func RunParent(
 	// Combinar variables de entorno de forma limpia
 	cmd.Env = mergeEnviron(os.Environ(), customEnv)
 
+	logFilePath := filepath.Join("/var/lib/minidocker/containers", containerID, "container.log")
+	logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err == nil {
+		defer logFile.Close()
+		cmd.Stdout = io.MultiWriter(os.Stdout, logFile)
+		cmd.Stderr = io.MultiWriter(os.Stderr, logFile)
+	} else {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
 	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+
 	cmd.ExtraFiles = []*os.File{pipeReader}
 
 	cmd.SysProcAttr = &syscall.SysProcAttr{
