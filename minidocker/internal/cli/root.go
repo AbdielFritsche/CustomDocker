@@ -23,6 +23,9 @@ func Execute() {
 }
 
 func init() {
+	// PersistentFlags queda disponible para run, create, ps, stop, logs, etc.
+	rootCmd.PersistentFlags().StringVar(&globalDataRoot, "data-root", "/var/lib/minidocker/containers", "Ruta de almacenamiento de los contenedores")
+
 	rootCmd.AddCommand(newRunCmd())
 	rootCmd.AddCommand(newCreateCmd())
 	rootCmd.AddCommand(newStartCmd())

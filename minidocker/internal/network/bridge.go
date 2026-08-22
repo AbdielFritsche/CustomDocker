@@ -28,7 +28,6 @@ func SetupNamedBridge(bridgeName, bridgeIP, subnetCIDR string) error {
 		return fmt.Errorf("error parseando IP del bridge: %w", err)
 	}
 
-	// Evitar asignar múltiples IPs al mismo bridge
 	addrs, err := netlink.AddrList(link, netlink.FAMILY_V4)
 	alreadyAssigned := false
 	if err == nil {
@@ -50,15 +49,14 @@ func SetupNamedBridge(bridgeName, bridgeIP, subnetCIDR string) error {
 		return fmt.Errorf("error levantando bridge %s: %w", bridgeName, err)
 	}
 
-	// 1. IP Forwarding global y soporte loopback
+	// Habilitar IP Forwarding global y routing local
 	_ = exec.Command("sysctl", "-w", "net.ipv4.ip_forward=1").Run()
 	_ = exec.Command("sysctl", "-w", "net.ipv4.conf.all.route_localnet=1").Run()
+	_ = exec.Command("sysctl", "-w", "net.ipv4.conf.default.route_localnet=1").Run()
 
-	// 2. Permitir tráfico de FORWARD en el bridge
+	// Reglas de salida NAT Masquerade y Forwarding para el bridge
 	_ = exec.Command("iptables", "-I", "FORWARD", "-o", bridgeName, "-j", "ACCEPT").Run()
 	_ = exec.Command("iptables", "-I", "FORWARD", "-i", bridgeName, "-j", "ACCEPT").Run()
-
-	// 3. Regla NAT (MASQUERADE) para salida a Internet
 	_ = exec.Command("iptables", "-t", "nat", "-A", "POSTROUTING", "-s", subnetCIDR, "!", "-o", bridgeName, "-j", "MASQUERADE").Run()
 
 	return nil

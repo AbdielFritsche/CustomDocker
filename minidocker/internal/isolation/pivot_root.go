@@ -34,7 +34,12 @@ func PivotRoot(newRoot string) error {
 		return fmt.Errorf("error cambiando a /: %w", err)
 	}
 
-	// 5. Desmontar el root viejo
+	// 5. Montar un procfs nuevo, propio del namespace del contenedor
+	if err := syscall.Mount("proc", "/proc", "proc", 0, ""); err != nil {
+		return fmt.Errorf("error montando /proc: %w", err)
+	}
+
+	// 6. Desmontar el root viejo
 	putOldUnmount := "/.oldroot"
 	if err := syscall.Unmount(putOldUnmount, syscall.MNT_DETACH); err != nil {
 		return fmt.Errorf("error desmontando oldroot: %w", err)

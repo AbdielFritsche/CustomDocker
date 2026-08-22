@@ -7,13 +7,11 @@ import (
 	"os"
 )
 
-// TCPProxy mantiene un socket abierto en el host y canaliza el tráfico al contenedor
 type TCPProxy struct {
 	listener net.Listener
 	stopChan chan struct{}
 }
 
-// StartPortProxy abre un listener en todas las interfaces y canaliza tráfico bidireccional
 func StartPortProxy(hostPort, containerPort int, containerIP string) (*TCPProxy, error) {
 	hostAddr := fmt.Sprintf("0.0.0.0:%d", hostPort)
 	targetAddr := fmt.Sprintf("%s:%d", containerIP, containerPort)
@@ -52,7 +50,7 @@ func handleProxyConn(client net.Conn, targetAddr string) {
 
 	target, err := net.Dial("tcp", targetAddr)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[Proxy Error] No se pudo conectar con el contenedor en %s: %v\n", targetAddr, err)
+		fmt.Fprintf(os.Stderr, "[Proxy Error] Fallo al conectar con %s: %v\n", targetAddr, err)
 		return
 	}
 	defer target.Close()
@@ -62,7 +60,6 @@ func handleProxyConn(client net.Conn, targetAddr string) {
 
 	done := make(chan struct{}, 2)
 
-	// Cliente (Host / Windows) -> Contenedor
 	go func() {
 		_, _ = io.Copy(target, client)
 		if ok2 {
@@ -71,7 +68,6 @@ func handleProxyConn(client net.Conn, targetAddr string) {
 		done <- struct{}{}
 	}()
 
-	// Contenedor -> Cliente (Host / Windows)
 	go func() {
 		_, _ = io.Copy(client, target)
 		if ok1 {
@@ -83,7 +79,6 @@ func handleProxyConn(client net.Conn, targetAddr string) {
 	<-done
 }
 
-// Close apaga el socket
 func (p *TCPProxy) Close() error {
 	close(p.stopChan)
 	if p.listener != nil {

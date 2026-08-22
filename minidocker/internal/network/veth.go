@@ -10,7 +10,7 @@ import (
 	"github.com/vishvananda/netns"
 )
 
-// SetupContainerNetworkDynamic conecta el contenedor al bridge especificado y asigna su Gateway
+// SetupContainerNetworkDynamic conecta el namespace de red del contenedor al bridge
 func SetupContainerNetworkDynamic(containerPID int, containerIP, bridgeName, gatewayIP string) error {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -50,14 +50,13 @@ func SetupContainerNetworkDynamic(containerPID int, containerIP, bridgeName, gat
 		return fmt.Errorf("error levantando %s: %w", vethHostName, err)
 	}
 
-	// Asegurar que el bridge esté levantado
 	_ = netlink.LinkSetUp(br)
 
-	// Desactivar filtrado de ruta inversa en el extremo host para evitar 'no route to host'
+	// Desactivar reverse path filtering para evitar 'no route to host'
 	_ = exec.Command("sysctl", "-w", fmt.Sprintf("net.ipv4.conf.%s.rp_filter=0", vethHostName)).Run()
 	_ = exec.Command("sysctl", "-w", fmt.Sprintf("net.ipv4.conf.%s.rp_filter=0", bridgeName)).Run()
 
-	// 3. Mover al netns del contenedor
+	// 3. Mover extremo par al namespace del contenedor
 	vethCont, err := netlink.LinkByName(vethContName)
 	if err != nil {
 		return fmt.Errorf("error obteniendo %s: %w", vethContName, err)
@@ -85,7 +84,7 @@ func SetupContainerNetworkDynamic(containerPID int, containerIP, bridgeName, gat
 	}
 	defer netns.Set(hostNs)
 
-	// 5. Renombrar y levantar eth0
+	// 5. Renombrar y levantar eth0 dentro del contenedor
 	cLink, err := netlink.LinkByName(vethContName)
 	if err != nil {
 		return err
@@ -100,7 +99,6 @@ func SetupContainerNetworkDynamic(containerPID int, containerIP, bridgeName, gat
 		return err
 	}
 
-	// 6. Asignar la IP con su máscara
 	ipAddr, err := netlink.ParseAddr(containerIP)
 	if err != nil {
 		return fmt.Errorf("error parseando containerIP [%s]: %w", containerIP, err)
@@ -114,12 +112,11 @@ func SetupContainerNetworkDynamic(containerPID int, containerIP, bridgeName, gat
 		return fmt.Errorf("error levantando eth0: %w", err)
 	}
 
-	// 7. Levantar loopback (lo)
 	if lo, err := netlink.LinkByName("lo"); err == nil {
 		_ = netlink.LinkSetUp(lo)
 	}
 
-	// 8. Agregar RUTA DE ENLACE LOCAL (Scope Link) para la subred
+	// 6. Configurar ruta local de enlace y Default Gateway
 	_, ipNet, _ := net.ParseCIDR(containerIP)
 	linkRoute := &netlink.Route{
 		Scope:     netlink.SCOPE_LINK,
@@ -128,13 +125,11 @@ func SetupContainerNetworkDynamic(containerPID int, containerIP, bridgeName, gat
 	}
 	_ = netlink.RouteAdd(linkRoute)
 
-	// 9. Agregar DEFAULT GATEWAY apuntando a la IP del Bridge
 	gw := net.ParseIP(gatewayIP)
 	defaultRoute := &netlink.Route{
 		Scope:     netlink.SCOPE_UNIVERSE,
 		LinkIndex: eth0.Attrs().Index,
 		Gw:        gw,
-		Dst:       nil,
 	}
 
 	if err := netlink.RouteAdd(defaultRoute); err != nil {
@@ -144,6 +139,7 @@ func SetupContainerNetworkDynamic(containerPID int, containerIP, bridgeName, gat
 	return nil
 }
 
+// CleanupNetwork remueve las interfaces veth del host
 func CleanupNetwork(containerPID int) {
 	vethHostName := fmt.Sprintf("veth0_%d", containerPID)
 	if link, err := netlink.LinkByName(vethHostName); err == nil {

@@ -2,43 +2,62 @@ package cli
 
 import (
 	"fmt"
-	"strings"
+	"time"
 
-	"minidocker/internal/container"
+	"minidocker/internal/api"
+	"minidocker/pkg/decorators"
 
 	"github.com/spf13/cobra"
 )
 
-var (
-	startRootPath string
-	startCommand  string
-)
+var startOverrideCmd string
 
 func newStartCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "start [flags] <ID_o_Nombre> [comando...]",
-		Short: "Arranca un contenedor existente conservando sus cambios",
-		Args:  cobra.MinimumNArgs(1),
+		Use:   "start [flags] <ID_o_Nombre>",
+		Short: "Inicia un contenedor existente a través del daemon",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			containerID := args[0]
-			var cmdOverride []string
+			idOrName := args[0]
+			client := api.NewClient("/var/run/minidocker.sock")
 
-			// 1. Prioridad: flag -c (ej: -c "/bin/bash")
-			if startCommand != "" {
-				cmdOverride = strings.Fields(startCommand)
-			} else if len(args) > 1 {
-				// 2. Argumentos posicionales (ej: start db /bin/bash)
-				cmdOverride = args[1:]
+			var override []string
+			if startOverrideCmd != "" {
+				override = []string{startOverrideCmd}
 			}
 
-			mgr := container.NewManager(startRootPath)
-			fmt.Printf("Iniciando contenedor [%s]...\n", containerID)
-			return mgr.StartContainer(containerID, cmdOverride)
+			// 1. Decorador visual: Enviar orden al Daemon
+			err := decorators.WithLogging(fmt.Sprintf("Iniciando contenedor [%s]", idOrName), func() error {
+				return client.StartContainer(idOrName, override...)
+			})
+			if err != nil {
+				return err
+			}
+
+			// 2. Decorador visual: Confirmar estado activo de namespaces y proxy
+			return decorators.WithLogging(fmt.Sprintf("Verificando estado activo para [%s]", idOrName), func() error {
+				for i := 0; i < 15; i++ {
+					time.Sleep(300 * time.Millisecond)
+					containers, err := client.GetContainers()
+					if err != nil {
+						continue
+					}
+					for _, c := range containers {
+						if c.ID == idOrName || c.Name == idOrName {
+							if c.State == "running" {
+								return nil
+							}
+							if c.State == "failed" {
+								return fmt.Errorf("el contenedor terminó con estado failed")
+							}
+						}
+					}
+				}
+				return fmt.Errorf("timeout esperando estado running")
+			})
 		},
 	}
 
-	cmd.Flags().StringVar(&startRootPath, "data-root", "/var/lib/minidocker/containers", "Ruta de almacenamiento")
-	cmd.Flags().StringVarP(&startCommand, "command", "c", "", "Comando a ejecutar dentro del contenedor")
-
+	cmd.Flags().StringVarP(&startOverrideCmd, "command", "c", "", "Comando opcional de sobreescritura")
 	return cmd
 }

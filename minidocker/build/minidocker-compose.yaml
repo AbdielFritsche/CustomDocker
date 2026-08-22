@@ -22,7 +22,7 @@ services:
 
   api:
     image: "ubuntu:22.04"
-    command: ["/bin/bash"]
+    command: ["/bin/sh", "-c", "echo HOLA_DESDE_CONTENEDOR; sleep 60"]
     networks:
       backend:
         ipv4_address: "192.100.200.15"

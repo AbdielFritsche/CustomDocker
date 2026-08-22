@@ -1,0 +1,29 @@
+version: "3.8"
+
+networks:
+  backend:
+    subnet: "192.100.200.0/24"
+    gateway: "192.100.200.1"
+
+services:
+  database:
+    image: "mysql:latest"
+    environment:
+      - "MYSQL_ALLOW_EMPTY_PASSWORD=yes"
+      - "MYSQL_DATABASE=tienda"
+      - "MYSQL_USER=admin"
+      - "MYSQL_PASSWORD=secret123"
+    command:
+      - "mysqld"
+      - "--user=root"
+      - "--datadir=/var/lib/mysql"
+      - "--bind-address=0.0.0.0"
+      - "--skip-log-bin"
+      - "--skip-name-resolve"
+    ports:
+      - "3306:3306"
+    networks:
+      backend:
+        ipv4_address: "192.100.200.50"
+    memory: 1024
+    pids_max: 150
