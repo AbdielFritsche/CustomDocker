@@ -2,32 +2,25 @@ package cli
 
 import (
 	"fmt"
-	"minidocker/internal/container"
+
+	"minidocker/pkg/decorators"
 
 	"github.com/spf13/cobra"
 )
 
-var rmDataRoot string
-
 func newRmCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "rm [flags] <container_id>",
+	return &cobra.Command{
+		Use:   "rm <ID_o_Nombre>",
 		Short: "Elimina los metadatos y almacenamiento de un contenedor detenido",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id := args[0]
-			mgr := container.NewManager(rmDataRoot)
+			idOrName := args[0]
 
-			if err := mgr.DeleteContainer(id); err != nil {
-				return err
-			}
+			actionMsg := fmt.Sprintf("Eliminando contenedor [%s]", idOrName)
 
-			fmt.Printf("Contenedor [%s] eliminado exitosamente de %s.\n", id, rmDataRoot)
-			return nil
+			return decorators.WithCLIOutput(actionMsg, func() error {
+				return GetManager().DeleteContainer(idOrName)
+			})
 		},
 	}
-
-	cmd.Flags().StringVar(&rmDataRoot, "data-root", "/var/lib/minidocker/containers", "Ruta de almacenamiento de los contenedores")
-
-	return cmd
 }
