@@ -23,6 +23,14 @@ func Execute() {
 }
 
 func init() {
+
+	rootCmd.PersistentFlags().StringVar(
+		&GlobalDataRoot,
+		"data-root",
+		"/var/lib/minidocker/containers",
+		"Ruta base para el almacenamiento de contenedores",
+	)
+
 	rootCmd.AddCommand(newRunCmd())
 	rootCmd.AddCommand(newCreateCmd())
 	rootCmd.AddCommand(newStartCmd())

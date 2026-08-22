@@ -2,32 +2,25 @@ package cli
 
 import (
 	"fmt"
-	"minidocker/internal/container"
+
+	"minidocker/pkg/decorators"
 
 	"github.com/spf13/cobra"
 )
 
-var stopDataRoot string
-
 func newStopCmd() *cobra.Command {
-	cmd := &cobra.Command{
+	return &cobra.Command{
 		Use:   "stop <ID_o_Nombre>",
-		Short: "Detiene uno o más contenedores en ejecución",
+		Short: "Detiene un contenedor en ejecución",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			idOrName := args[0]
-			mgr := container.NewManager(stopDataRoot)
 
-			fmt.Printf("Deteniendo contenedor [%s]...\n", idOrName)
-			if err := mgr.StopContainer(idOrName); err != nil {
-				return err
-			}
+			actionMsg := fmt.Sprintf("Deteniendo contenedor [%s]", idOrName)
 
-			fmt.Printf("Contenedor [%s] detenido exitosamente.\n", idOrName)
-			return nil
+			return decorators.WithCLIOutput(actionMsg, func() error {
+				return GetManager().StopContainer(idOrName)
+			})
 		},
 	}
-
-	cmd.Flags().StringVar(&stopDataRoot, "data-root", "/var/lib/minidocker/containers", "Ruta de almacenamiento")
-	return cmd
 }

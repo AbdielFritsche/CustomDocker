@@ -325,3 +325,22 @@ func (m *Manager) GetContainer(idOrName string) (*Container, error) {
 
 	return nil, fmt.Errorf("no se encontró ningún contenedor con ID o nombre [%s]", idOrName)
 }
+
+func (m *Manager) ListContainerDirs() ([]string, error) {
+	entries, err := os.ReadDir(m.baseDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []string{}, nil
+		}
+		return nil, fmt.Errorf("error leyendo el directorio base %s: %w", m.baseDir, err)
+	}
+
+	var dirs []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			containerDirPath := filepath.Join(m.baseDir, entry.Name())
+			dirs = append(dirs, containerDirPath)
+		}
+	}
+	return dirs, nil
+}
