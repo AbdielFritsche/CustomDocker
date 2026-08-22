@@ -45,7 +45,7 @@ func newRunCmd() *cobra.Command {
 			}
 
 			fmt.Printf("Contenedor [%s] creado. Arrancando...\n", c.Config.ID)
-			return mgr.StartContainer(c.Config.ID)
+			return mgr.StartContainer(c.Config.ID, userCommand)
 		},
 	}
 

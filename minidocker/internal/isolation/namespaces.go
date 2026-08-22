@@ -36,7 +36,7 @@ func mergeEnviron(baseEnv, customEnv []string) []string {
 }
 
 func RunParent(
-	containerID, rootfs string,
+	containerID, containerName, rootfs string,
 	limits CgroupLimits,
 	args []string,
 	customEnv []string,
@@ -55,6 +55,8 @@ func RunParent(
 		return fmt.Errorf("error configurando bridge %s: %w", bridgeName, err)
 	}
 
+	network.StartEmbeddedDNS(gatewayIP)
+
 	pipeReader, pipeWriter, err := os.Pipe()
 	if err != nil {
 		return fmt.Errorf("error creando pipe de sincronización: %w", err)
@@ -65,7 +67,7 @@ func RunParent(
 	cmd := exec.Command("/proc/self/exe", childArgs...)
 
 	// Combinar variables de entorno de forma limpia
-	cmd.Env = mergeEnviron(os.Environ(), customEnv)
+	cmd.Env = mergeEnviron(os.Environ(), append(customEnv, fmt.Sprintf("_MINIDOCKER_GATEWAY=%s", gatewayIP)))
 
 	logFilePath := filepath.Join("/var/lib/minidocker/containers", containerID, "container.log")
 	logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
@@ -142,6 +144,11 @@ func RunParent(
 	}
 	defer network.CleanupNetwork(pid)
 
+	network.RegisterRecord(gatewayIP, containerID, rawIP)
+	network.RegisterRecord(gatewayIP, containerName, rawIP)
+	defer network.UnregisterRecord(gatewayIP, containerID)
+	defer network.UnregisterRecord(gatewayIP, containerName)
+
 	if hostPort > 0 && containerPort > 0 {
 		proxy, err := network.StartPortProxy(hostPort, containerPort, rawIP)
 		if err != nil {
@@ -165,14 +172,21 @@ func RunParent(
 func RunChild(rootfs string, command []string) error {
 	syncPipe := os.NewFile(uintptr(3), "syncPipe")
 	buf := make([]byte, 5)
-	_, _ = io.ReadFull(syncPipe, buf)
+	if _, err := io.ReadFull(syncPipe, buf); err != nil {
+		return fmt.Errorf("error leyendo pipe de sincronización: %w", err)
+	}
 	_ = syncPipe.Close()
 
 	if err := syscall.Sethostname([]byte("minidocker")); err != nil {
 		return fmt.Errorf("error asignando hostname: %w", err)
 	}
 
-	_ = os.WriteFile(rootfs+"/etc/resolv.conf", []byte("nameserver 8.8.8.8\nnameserver 1.1.1.1\n"), 0644)
+	// Inyectar resolv.conf apuntando al gateway si existe en Env
+	gwIP := os.Getenv("_MINIDOCKER_GATEWAY")
+	if gwIP == "" {
+		gwIP = "8.8.8.8"
+	}
+	_ = os.WriteFile(rootfs+"/etc/resolv.conf", fmt.Appendf(nil, "nameserver %s\nnameserver 8.8.8.8\n", gwIP), 0644)
 
 	if err := PivotRoot(rootfs); err != nil {
 		return fmt.Errorf("error en PivotRoot: %w", err)
