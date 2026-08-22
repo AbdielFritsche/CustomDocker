@@ -3,163 +3,149 @@ package network
 import (
 	"encoding/json"
 	"fmt"
-	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/miekg/dns"
 )
 
-const dnsStoreDir = "/var/lib/minidocker/dns"
+const dnsStateDir = "/var/run/minidocker/dns"
 
-type EmbeddedDNS struct {
-	server *dns.Server
+type DNSRecordsMap map[string]string // hostname -> IP
+
+var mu sync.Mutex
+
+func ensureStateDir() {
+	_ = os.MkdirAll(dnsStateDir, 0755)
 }
 
-var (
-	dnsRegistry = make(map[string]*EmbeddedDNS) // gatewayIP -> servidor (solo dentro de ESTE proceso)
-	registryMu  sync.Mutex
-
-	fileMu sync.Mutex
-)
-
-func recordsFilePath(gatewayIP string) string {
-	safe := strings.NewReplacer(".", "_", ":", "_").Replace(gatewayIP)
-	return filepath.Join(dnsStoreDir, safe+".json")
+func getTablePath(gatewayIP string) string {
+	return filepath.Join(dnsStateDir, fmt.Sprintf("%s.json", gatewayIP))
 }
 
-func loadRecords(gatewayIP string) map[string]string {
-	fileMu.Lock()
-	defer fileMu.Unlock()
-
-	data, err := os.ReadFile(recordsFilePath(gatewayIP))
-	if err != nil {
-		return map[string]string{}
-	}
-	var records map[string]string
-	if err := json.Unmarshal(data, &records); err != nil {
-		return map[string]string{}
-	}
-	return records
-}
-
-func saveRecords(gatewayIP string, records map[string]string) error {
-	fileMu.Lock()
-	defer fileMu.Unlock()
-
-	if err := os.MkdirAll(dnsStoreDir, 0755); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(records, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp := recordsFilePath(gatewayIP) + ".tmp"
-	if err := os.WriteFile(tmp, data, 0644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, recordsFilePath(gatewayIP))
+func getPidPath(gatewayIP string) string {
+	return filepath.Join(dnsStateDir, fmt.Sprintf("%s.pid", gatewayIP))
 }
 
 func RegisterRecord(gatewayIP, name, ip string) {
 	if gatewayIP == "" || name == "" || ip == "" {
 		return
 	}
-	clean := strings.ToLower(strings.TrimSuffix(name, ".")) + "."
+	mu.Lock()
+	defer mu.Unlock()
+	ensureStateDir()
 
-	records := loadRecords(gatewayIP)
+	records := loadTable(gatewayIP)
+	clean := strings.ToLower(strings.TrimSuffix(name, ".")) + "."
 	records[clean] = ip
-	_ = saveRecords(gatewayIP, records)
+	saveTable(gatewayIP, records)
 }
 
 func UnregisterRecord(gatewayIP, name string) {
 	if gatewayIP == "" || name == "" {
 		return
 	}
+	mu.Lock()
+	defer mu.Unlock()
+	ensureStateDir()
+
+	records := loadTable(gatewayIP)
 	clean := strings.ToLower(strings.TrimSuffix(name, ".")) + "."
+	delete(records, clean)
+	saveTable(gatewayIP, records)
+}
 
-	records := loadRecords(gatewayIP)
-	if _, ok := records[clean]; ok {
-		delete(records, clean)
-		_ = saveRecords(gatewayIP, records)
+func loadTable(gatewayIP string) DNSRecordsMap {
+	table := make(DNSRecordsMap)
+	data, err := os.ReadFile(getTablePath(gatewayIP))
+	if err == nil {
+		_ = json.Unmarshal(data, &table)
+	}
+	return table
+}
+
+func saveTable(gatewayIP string, table DNSRecordsMap) {
+	data, err := json.Marshal(table)
+	if err == nil {
+		_ = os.WriteFile(getTablePath(gatewayIP), data, 0644)
 	}
 }
 
-// StartEmbeddedDNS intenta hacer bind real y síncrono en gatewayIP:53.
-// Si otro proceso ya tiene ese puerto (otro contenedor de la misma red
-// arrancado antes), simplemente no hace nada: ese otro proceso seguirá
-// respondiendo, leyendo del mismo almacén en disco.
+// StartEmbeddedDNS asegura que exista un proceso daemon independiente escuchando en gatewayIP:53
 func StartEmbeddedDNS(gatewayIP string) {
-	registryMu.Lock()
-	defer registryMu.Unlock()
+	ensureStateDir()
+	pidFile := getPidPath(gatewayIP)
 
-	if _, exists := dnsRegistry[gatewayIP]; exists {
-		return
-	}
-
-	udpAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:53", gatewayIP))
-	if err != nil {
-		return
-	}
-
-	conn, err := net.ListenUDP("udp", udpAddr)
-	if err != nil {
-		// Ya hay un servidor DNS real en otro proceso para este gateway.
-		return
-	}
-
-	instance := &EmbeddedDNS{}
-	mux := dns.NewServeMux()
-	mux.HandleFunc(".", handleDNSRequest)
-
-	instance.server = &dns.Server{
-		PacketConn: conn,
-		Net:        "udp",
-		Handler:    mux,
-	}
-
-	dnsRegistry[gatewayIP] = instance
-
-	go func() {
-		_ = instance.server.ActivateAndServe()
-	}()
-}
-
-func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
-	m := new(dns.Msg)
-	m.SetReply(r)
-	m.Authoritative = true
-
-	gatewayIP := w.LocalAddr().String()
-	if host, _, err := net.SplitHostPort(gatewayIP); err == nil {
-		gatewayIP = host
-	}
-
-	records := loadRecords(gatewayIP)
-
-	for _, q := range r.Question {
-		target := strings.ToLower(strings.TrimSuffix(q.Name, ".")) + "."
-		if ip, found := records[target]; found {
-			if q.Qtype == dns.TypeA {
-				if rr, err := dns.NewRR(fmt.Sprintf("%s 60 IN A %s", q.Name, ip)); err == nil {
-					m.Answer = append(m.Answer, rr)
-				}
+	// Comprobar si el daemon ya está vivo
+	if data, err := os.ReadFile(pidFile); err == nil {
+		if pid, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil {
+			if syscall.Kill(pid, 0) == nil {
+				return // Ya está corriendo y saludable
 			}
-			m.SetRcode(r, dns.RcodeSuccess)
-			_ = w.WriteMsg(m)
-			return
 		}
 	}
 
-	c := new(dns.Client)
-	in, _, err := c.Exchange(r, "8.8.8.8:53")
-	if err == nil {
-		_ = w.WriteMsg(in)
-		return
+	// Lanzar el subproceso demonizado desacoplado de la terminal
+	cmd := exec.Command("/proc/self/exe", "__dnsd__", gatewayIP)
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setsid: true, // Crea una sesión independiente; inmune a señales de la terminal
 	}
 
-	m.SetRcode(r, dns.RcodeNameError)
-	_ = w.WriteMsg(m)
+	if err := cmd.Start(); err == nil {
+		_ = os.WriteFile(pidFile, []byte(strconv.Itoa(cmd.Process.Pid)), 0644)
+		_ = cmd.Process.Release()
+	}
+}
+
+// RunDNSDaemon es el bucle del servidor DNS ejecutado por el daemon
+func RunDNSDaemon(gatewayIP string) error {
+	listenAddr := fmt.Sprintf("%s:53", gatewayIP)
+
+	mux := dns.NewServeMux()
+	mux.HandleFunc(".", func(w dns.ResponseWriter, r *dns.Msg) {
+		m := new(dns.Msg)
+		m.SetReply(r)
+		m.Authoritative = true
+
+		records := loadTable(gatewayIP)
+
+		for _, q := range r.Question {
+			target := strings.ToLower(strings.TrimSuffix(q.Name, ".")) + "."
+			if ip, exists := records[target]; exists {
+				if q.Qtype == dns.TypeA {
+					rr, err := dns.NewRR(fmt.Sprintf("%s 60 IN A %s", q.Name, ip))
+					if err == nil {
+						m.Answer = append(m.Answer, rr)
+					}
+				}
+				m.SetRcode(r, dns.RcodeSuccess)
+				_ = w.WriteMsg(m)
+				return
+			}
+		}
+
+		// Reenvío a 8.8.8.8 para dominios externos
+		c := new(dns.Client)
+		in, _, err := c.Exchange(r, "8.8.8.8:53")
+		if err == nil {
+			_ = w.WriteMsg(in)
+			return
+		}
+
+		m.SetRcode(r, dns.RcodeNameError)
+		_ = w.WriteMsg(m)
+	})
+
+	srv := &dns.Server{
+		Addr:    listenAddr,
+		Net:     "udp",
+		Handler: mux,
+	}
+
+	return srv.ListenAndServe()
 }
