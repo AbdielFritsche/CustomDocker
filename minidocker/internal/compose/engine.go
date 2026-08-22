@@ -30,7 +30,7 @@ func (e *Engine) Up(composePath string) error {
 	networksMap := make(map[string]netInfo)
 	autoSubnetIndex := 20
 
-	// 1. Configurar los switches virtuales (bridges) declarados
+	// 1. Inicializar bridges y sus servidores DNS
 	for netName, netDef := range cf.Networks {
 		bridgeName := fmt.Sprintf("br_%s", netName)
 		var gwIP, gwCIDR, subnetCIDR string
@@ -56,6 +56,9 @@ func (e *Engine) Up(composePath string) error {
 		if err := network.SetupNamedBridge(bridgeName, gwCIDR, subnetCIDR); err != nil {
 			return err
 		}
+
+		// Levantar DNS para esta red
+		network.StartEmbeddedDNS(gwIP)
 
 		networksMap[netName] = netInfo{
 			bridgeName: bridgeName,
@@ -98,16 +101,18 @@ func (e *Engine) Up(composePath string) error {
 			opts = append(opts, container.WithEnv(svc.Environment))
 		}
 
-		// Asignar red principal configurada
 		for netName, netCfg := range svc.Networks {
 			opts = append(opts, container.WithNetwork(netName))
-			if nInfo, exists := networksMap[netName]; exists {
+			nInfo, exists := networksMap[netName]
+			if exists {
 				opts = append(opts, container.WithNetworkConfig(nInfo.bridgeName, nInfo.gwCIDR, nInfo.subnetCIDR, nInfo.gwIP))
 			}
 			if netCfg.IPv4Address != "" {
 				opts = append(opts, container.WithStaticIP(netCfg.IPv4Address))
+				if exists {
+					network.RegisterRecord(nInfo.gwIP, serviceName, netCfg.IPv4Address)
+				}
 			}
-			// Se toma la primera red definida como interfaz primaria
 			break
 		}
 

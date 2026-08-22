@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"minidocker/internal/isolation"
+	"minidocker/internal/network"
 	"minidocker/internal/storage"
 )
 
@@ -71,7 +72,7 @@ func (m *Manager) CreateContainer(image string, cmd []string, opts ...Option) (*
 }
 
 // StartContainer inicia un contenedor previamente creado o detenido
-func (m *Manager) StartContainer(idOrName string) error {
+func (m *Manager) StartContainer(idOrName string, overrideCmd []string) error {
 	c, err := m.GetContainer(idOrName)
 	if err != nil {
 		return err
@@ -84,6 +85,11 @@ func (m *Manager) StartContainer(idOrName string) error {
 		c.State = StateStopped
 		c.PID = 0
 		_ = m.saveMetadata(c)
+	}
+
+	cmdToRun := c.Config.Command
+	if len(overrideCmd) > 0 {
+		cmdToRun = overrideCmd
 	}
 
 	lowerPath := c.Config.Image
@@ -137,11 +143,38 @@ func (m *Manager) StartContainer(idOrName string) error {
 		_ = m.saveMetadata(c)
 	}
 
+	// 1. Iniciar servidor DNS en el gateway de este contenedor
+	network.StartEmbeddedDNS(gatewayIP)
+
+	// 2. Precargar todos los contenedores existentes en la tabla global
+	if entries, err := os.ReadDir(m.baseDir); err == nil {
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			if other, err := m.GetContainer(entry.Name()); err == nil {
+				targetIP := other.Config.StaticIP
+				if targetIP == "" {
+					targetIP = other.Config.IP
+				}
+				otherGateway := other.Config.GatewayIP
+				if otherGateway == "" {
+					otherGateway = "172.19.0.1" // gateway por defecto
+				}
+				if targetIP != "" {
+					network.RegisterRecord(otherGateway, other.Config.Name, targetIP)
+					network.RegisterRecord(otherGateway, other.Config.ID, targetIP)
+				}
+			}
+		}
+	}
+
 	runErr := isolation.RunParent(
 		c.Config.ID,
+		c.Config.Name,
 		mergedRootFS,
 		c.Config.Limits,
-		c.Config.Command,
+		cmdToRun,
 		c.Config.Env,
 		hp,
 		cp,
@@ -168,7 +201,7 @@ func (m *Manager) StartContainer(idOrName string) error {
 }
 
 func (m *Manager) RunContainer(c *Container) error {
-	return m.StartContainer(c.Config.ID)
+	return m.StartContainer(c.Config.ID, nil)
 }
 
 func (m *Manager) StopContainer(idOrName string) error {
