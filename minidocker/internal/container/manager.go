@@ -35,6 +35,43 @@ func generateID() string {
 	return hex.EncodeToString(bytes)
 }
 
+func (m *Manager) Reconcile() ([]string, error) {
+	dirs, err := m.ListContainerDirs()
+	if err != nil {
+		return nil, err
+	}
+
+	var corrected []string
+	for _, dir := range dirs {
+		id := filepath.Base(dir)
+		c, err := m.GetContainer(id)
+
+		if err != nil {
+			continue
+		}
+		if c.State != StateRunning {
+			continue
+		}
+
+		alive := c.PID > 0 && syscall.Kill(c.PID, 0) == nil
+		if alive {
+			continue
+		}
+
+		c.State = StateStopped
+		c.PID = 0
+		c.StoppedAt = time.Now()
+
+		if err := m.saveMetadata(c); err != nil {
+			return corrected, fmt.Errorf("Error corrigiendo metadata de [%s]: %w", c.Config.Name, err)
+		}
+
+		corrected = append(corrected, c.Config.Name)
+	}
+
+	return corrected, nil
+}
+
 func (m *Manager) CreateContainer(image string, cmd []string, opts ...Option) (*Container, error) {
 	id := generateID()
 	cfg := Config{

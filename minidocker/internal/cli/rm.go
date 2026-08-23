@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 
 	"minidocker/pkg/decorators"
@@ -19,7 +20,7 @@ func newRmCmd() *cobra.Command {
 			actionMsg := fmt.Sprintf("Eliminando contenedor [%s]", idOrName)
 
 			return decorators.WithCLIOutput(actionMsg, func() error {
-				return GetManager().DeleteContainer(idOrName)
+				return GetAPIClient().Delete(context.Background(), idOrName)
 			})
 		},
 	}

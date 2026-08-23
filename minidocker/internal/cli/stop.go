@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 
 	"minidocker/pkg/decorators"
@@ -19,7 +20,7 @@ func newStopCmd() *cobra.Command {
 			actionMsg := fmt.Sprintf("Deteniendo contenedor [%s]", idOrName)
 
 			return decorators.WithCLIOutput(actionMsg, func() error {
-				return GetManager().StopContainer(idOrName)
+				return GetAPIClient().Stop(context.Background(), idOrName)
 			})
 		},
 	}
