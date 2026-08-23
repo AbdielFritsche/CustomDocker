@@ -41,6 +41,16 @@ func main() {
 	}
 
 	mgr := container.NewManager(*dataRoot)
+	corrected, err := mgr.Reconcile()
+	if err != nil {
+		log.Fatalf("[minidockerd] error en reconciliacion de arranque: %v", err)
+	}
+	if len(corrected) > 0 {
+		log.Printf("[minidockerd] reconciliacion: %d contenedor(es) corregidos(s) a 'stopped': %v", len(corrected), corrected)
+	} else {
+		log.Printf("[minidockerd] reconciliacion: sin inconsistencias")
+	}
+
 	srv := api.NewServer(mgr, *socketPath)
 
 	sigChan := make(chan os.Signal, 1)
