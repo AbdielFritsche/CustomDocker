@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 
+	"minidocker/internal/api"
+
 	"github.com/spf13/cobra"
 )
 
@@ -28,7 +30,14 @@ func init() {
 		&GlobalDataRoot,
 		"data-root",
 		"/var/lib/minidocker/containers",
-		"Ruta base para el almacenamiento de contenedores",
+		"Ruta base para el almacenamiento de contenedores (solo aplica a comandos aún no migrados al daemon)",
+	)
+
+	rootCmd.PersistentFlags().StringVar(
+		&GlobalSocketPath,
+		"socket",
+		api.DefaultSocketPath,
+		"Ruta del socket UNIX de minidockerd",
 	)
 
 	rootCmd.AddCommand(newRunCmd())

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -22,39 +23,31 @@ func newPsCmd() *cobra.Command {
 
 			return decorators.WithCLIOutput(actionMsg, func() error {
 
-				mgr := GetManager()
+				client := GetAPIClient()
 
-				entries, err := os.ReadDir(GlobalDataRoot)
+				resp, err := client.Ps(context.Background())
 				if err != nil {
-					if os.IsNotExist(err) {
-						fmt.Println("         -> No hay contenedores registrados en esa ruta.")
-						return nil
-					}
 					return err
+				}
+
+				if len(resp.Containers) == 0 {
+					fmt.Println(" 			-> No hay contenedores registrados.")
+					return nil
 				}
 
 				w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
 				fmt.Fprintln(w, "CONTAINER ID\tIMAGE\tCOMMAND\tCREATED\tSTATUS\tPORTS\tIP\tNAMES")
 
-				for _, entry := range entries {
-					if !entry.IsDir() {
-						continue
-					}
-
-					c, err := mgr.GetContainer(entry.Name())
-					if err != nil {
-						continue
-					}
-
+				for _, c := range resp.Containers {
 					cmdStr := `""`
-					if len(c.Config.Command) > 0 {
-						cmdStr = fmt.Sprintf(`"%s"`, strings.Join(c.Config.Command, " "))
+					if len(c.Command) > 0 {
+						cmdStr = fmt.Sprintf(`"%s"`, strings.Join(c.Command, " "))
 						if len(cmdStr) > 20 {
 							cmdStr = cmdStr[:17] + `..."`
 						}
 					}
 
-					imgStr := c.Config.Image
+					imgStr := c.Image
 					if imgStr == "" {
 						imgStr = "assets/alpine"
 					} else {
@@ -62,26 +55,26 @@ func newPsCmd() *cobra.Command {
 					}
 
 					portsStr := "-"
-					if c.Config.PortMapping != nil && c.Config.PortMapping.HostPort > 0 {
-						portsStr = fmt.Sprintf("0.0.0.0:%d->%d/tcp", c.Config.PortMapping.HostPort, c.Config.PortMapping.ContainerPort)
+					if c.HostPort > 0 {
+						portsStr = fmt.Sprintf("0.0.0.0:%d->%d/tcp", c.HostPort, c.ContPort)
 					}
 
-					ipStr := c.Config.IP
+					ipStr := c.IP
 					if ipStr == "" {
 						ipStr = "-"
 					}
 
-					createdStr := c.Config.CreatedAt.Format("2006-01-02 15:04:05")
+					createdStr := c.CreatedAt.Format("2006-01-02 15:04:05")
 
 					fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-						c.Config.ID[:12],
+						c.ID,
 						imgStr,
 						cmdStr,
 						createdStr,
 						c.State,
 						portsStr,
 						ipStr,
-						c.Config.Name,
+						c.Name,
 					)
 				}
 
