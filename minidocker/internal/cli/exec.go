@@ -5,8 +5,10 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"syscall"
 
+	"minidocker/internal/container"
 	"minidocker/pkg/decorators"
 
 	"github.com/spf13/cobra"
@@ -26,22 +28,25 @@ func newExecCmd() *cobra.Command {
 			actionMsg := fmt.Sprintf("Ejecutando comando en contenedor [%s]", idOrName)
 
 			return decorators.WithCLIOutput(actionMsg, func() error {
-				mgr := GetManager()
+				mgr := container.NewManager(execDataRoot)
 				c, err := mgr.GetContainer(idOrName)
 				if err != nil {
 					return err
 				}
 
-				if c.State != "running" || c.PID <= 0 || syscall.Kill(c.PID, 0) != nil {
+				if c.State != container.StateRunning || c.PID <= 0 || syscall.Kill(c.PID, 0) != nil {
 					return fmt.Errorf("el contenedor [%s] no está en ejecución", idOrName)
 				}
 
-				childArgs := append([]string{"exec-child"}, userCmd...)
-				execCmd := exec.Command("/proc/self/exe", childArgs...)
+				cmdSerialized := strings.Join(userCmd, "\x1f")
+				execCmd := exec.Command("/proc/self/exe")
 				execCmd.Stdin = os.Stdin
 				execCmd.Stdout = os.Stdout
 				execCmd.Stderr = os.Stderr
-				execCmd.Env = append(os.Environ(), fmt.Sprintf("_VESSEL_EXEC_PID=%s", strconv.Itoa(c.PID)))
+				execCmd.Env = append(os.Environ(),
+					fmt.Sprintf("_VESSEL_EXEC_PID=%s", strconv.Itoa(c.PID)),
+					fmt.Sprintf("_VESSEL_EXEC_CMD=%s", cmdSerialized),
+				)
 
 				return execCmd.Run()
 			})
@@ -49,5 +54,6 @@ func newExecCmd() *cobra.Command {
 	}
 
 	cmd.Flags().SetInterspersed(false)
+	cmd.Flags().StringVar(&execDataRoot, "data-root", "/var/lib/minidocker/containers", "Ruta base de almacenamiento de los contenedores")
 	return cmd
 }

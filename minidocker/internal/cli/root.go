@@ -52,4 +52,5 @@ func init() {
 	rootCmd.AddCommand(newExecCmd())
 	rootCmd.AddCommand(newLogsCmd())
 	rootCmd.AddCommand(newStatsCmd())
+	rootCmd.AddCommand(newAttachCmd())
 }

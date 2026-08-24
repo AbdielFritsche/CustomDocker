@@ -1,8 +1,10 @@
 package cli
 
 import (
+	"context"
 	"fmt"
-	"minidocker/internal/container"
+
+	"minidocker/internal/api"
 	"minidocker/pkg/decorators"
 
 	"github.com/spf13/cobra"
@@ -13,7 +15,9 @@ var (
 	runMemMB   int64
 	runPidsMax int64
 	runPort    string
+	runDetach  bool
 	runName    string
+	runHost    string
 )
 
 func newRunCmd() *cobra.Command {
@@ -31,40 +35,47 @@ func newRunCmd() *cobra.Command {
 
 			actionMsg := fmt.Sprintf("Creando y arrancando contenedor desde [%s]", image)
 
+			client := api.NewClient(runHost)
+			ctx := context.Background()
+
 			return decorators.WithCLIOutput(actionMsg, func() error {
-				opts := []container.Option{
-					container.WithMemoryLimit(runMemMB * 1024 * 1024),
-					container.WithPidsMax(runPidsMax),
-					// Utilizamos la ruta global registrada en root.go
-					container.WithBasePath(GlobalDataRoot),
-				}
-				if runName != "" {
-					opts = append(opts, container.WithName(runName))
-				}
-				if runPort != "" {
-					opts = append(opts, container.WithPortMapping(runPort))
+				req := api.CreateContainerRequest{
+					Name:     runName,
+					Image:    image,
+					Command:  userCommand,
+					MemoryMB: runMemMB,
+					PidsMax:  runPidsMax,
+					Port:     runPort,
 				}
 
-				mgr := GetManager()
-
-				c, err := mgr.CreateContainer(image, userCommand, opts...)
+				created, err := client.CreateContainer(ctx, req)
 				if err != nil {
-					return fmt.Errorf("falló la creación: %w", err)
+					return fmt.Errorf("error creando contenedor: %w", err)
 				}
 
-				fmt.Printf("         -> ID asignado: %s\n", c.Config.ID)
+				// 1. Modo background (-d): Iniciar vía REST asíncrono
+				if runDetach {
+					fmt.Println(created.ID)
+					_, err := client.StartContainer(ctx, created.ID, api.StartContainerRequest{
+						Command: userCommand,
+						Attach:  false,
+					})
+					return err
+				}
 
-				return mgr.StartContainer(c.Config.ID, nil)
+				// 2. Modo interactivo: Multiplexar sesión Yamux sobre el socket UNIX
+				return RunAttachClient(runHost, created.ID)
 			})
 		},
 	}
 
 	cmd.Flags().SetInterspersed(false)
-
 	cmd.Flags().Int64VarP(&runMemMB, "memory", "m", 100, "Límite de RAM en MB")
 	cmd.Flags().Int64Var(&runPidsMax, "pids-max", 20, "Límite de procesos")
 	cmd.Flags().StringVarP(&runPort, "publish", "p", "", "Mapeo de puertos host:container (ej: 8080:80)")
 	cmd.Flags().StringVarP(&runName, "name", "n", "", "Nombre del contenedor")
+	cmd.Flags().BoolVarP(&runDetach, "detach", "d", false, "Ejecutar contenedor en segundo plano")
+	cmd.Flags().StringVar(&runHost, "host", api.DefaultSocketPath, "Ruta al socket UNIX de minidockerd")
 
 	return cmd
 }

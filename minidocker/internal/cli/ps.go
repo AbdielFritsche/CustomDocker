@@ -25,7 +25,7 @@ func newPsCmd() *cobra.Command {
 
 				client := GetAPIClient()
 
-				resp, err := client.Ps(context.Background())
+				resp, err := client.ListContainers(context.Background())
 				if err != nil {
 					return err
 				}

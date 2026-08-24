@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -206,6 +207,15 @@ func (m *Manager) StartContainer(idOrName string, overrideCmd []string) error {
 		}
 	}
 
+	logFilePath := filepath.Join(m.baseDir, c.Config.ID, "container.log")
+	logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	var outWriter, errWriter io.Writer = os.Stdout, os.Stderr
+	if err == nil {
+		defer logFile.Close()
+		outWriter = io.MultiWriter(os.Stdout, logFile)
+		errWriter = io.MultiWriter(os.Stderr, logFile)
+	}
+
 	runErr := isolation.RunParent(
 		c.Config.ID,
 		c.Config.Name,
@@ -220,6 +230,9 @@ func (m *Manager) StartContainer(idOrName string, overrideCmd []string) error {
 		subnetCIDR,
 		gatewayIP,
 		c.Config.StaticIP,
+		nil,
+		outWriter,
+		errWriter,
 		onReady,
 	)
 
@@ -380,4 +393,100 @@ func (m *Manager) ListContainerDirs() ([]string, error) {
 		}
 	}
 	return dirs, nil
+}
+
+func (m *Manager) StartAttached(idOrName string, inStream io.Reader, outStream io.Writer, errStream io.Writer) error {
+	c, err := m.GetContainer(idOrName)
+	if err != nil {
+		return err
+	}
+
+	if c.State == StateRunning && c.PID > 0 && syscall.Kill(c.PID, 0) == nil {
+		return fmt.Errorf("el contenedor [%s] ya está en ejecución (PID: %d)", c.Config.Name, c.PID)
+	}
+
+	lowerPath := c.Config.Image
+	if stat, err := os.Stat(lowerPath); err != nil || !stat.IsDir() {
+		downloadedPath, err := storage.PullImage(c.Config.Image)
+		if err != nil {
+			return fmt.Errorf("no se pudo obtener la imagen [%s]: %w", c.Config.Image, err)
+		}
+		lowerPath = downloadedPath
+	}
+
+	absLower, err := filepath.Abs(lowerPath)
+	if err != nil {
+		return fmt.Errorf("ruta de imagen inválida: %w", err)
+	}
+
+	driver := storage.NewOverlayDriver(c.Config.ID, absLower, c.Config.BasePath)
+	mergedRootFS, err := driver.Mount()
+	if err != nil {
+		return fmt.Errorf("error montando OverlayFS: %w", err)
+	}
+	defer driver.Unmount()
+
+	c.Config.RootFS = mergedRootFS
+	c.State = StateRunning
+	c.StartedAt = time.Now()
+	_ = m.saveMetadata(c)
+
+	var hp, cp int
+	if c.Config.PortMapping != nil {
+		hp = c.Config.PortMapping.HostPort
+		cp = c.Config.PortMapping.ContainerPort
+	}
+
+	bridgeName := "minibr0"
+	bridgeIP := "172.19.0.1/16"
+	subnetCIDR := "172.19.0.0/16"
+	gatewayIP := "172.19.0.1"
+
+	if c.Config.BridgeName != "" {
+		bridgeName = c.Config.BridgeName
+		bridgeIP = c.Config.BridgeIP
+		subnetCIDR = c.Config.SubnetCIDR
+		gatewayIP = c.Config.GatewayIP
+	}
+
+	onReady := func(pid int, ip string) {
+		c.PID = pid
+		c.Config.IP = ip
+		c.Config.StaticIP = ip
+		_ = m.saveMetadata(c)
+	}
+
+	// Ejecuta RunParent canalizando stdin/stdout/stderr a los streams Yamux
+	runErr := isolation.RunParent(
+		c.Config.ID,
+		c.Config.Name,
+		mergedRootFS,
+		c.Config.Limits,
+		c.Config.Command,
+		c.Config.Env,
+		hp,
+		cp,
+		bridgeName,
+		bridgeIP,
+		subnetCIDR,
+		gatewayIP,
+		c.Config.StaticIP,
+		inStream,
+		outStream,
+		errStream,
+		onReady,
+	)
+
+	c.StoppedAt = time.Now()
+	c.PID = 0
+	if runErr != nil {
+		c.State = StateFailed
+		_ = m.saveMetadata(c)
+		return runErr
+	}
+
+	c.State = StateStopped
+	c.ExitCode = 0
+	_ = m.saveMetadata(c)
+	return nil
 }
