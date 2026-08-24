@@ -1,6 +1,6 @@
 # Vessel Engine
 
-Vessel es un motor y orquestador de contenedores de bajo nivel implementado en Go que interactúa directamente con el kernel de Linux. Su propósito es proveer aislamiento de procesos, gobernanza estricta de recursos de hardware, redes virtuales aisladas y almacenamiento Copy-on-Write (OverlayFS) sin depender de daemons en segundo plano ni suites externas como Docker o containerd.
+Vessel es un motor y orquestador de contenedores de bajo nivel implementado en Go que interactúa directamente con el kernel de Linux. Su propósito es proveer aislamiento de procesos, gobernanza estricta de recursos de hardware, redes virtuales aisladas y almacenamiento Copy-on-Write (OverlayFS).
 
 El proyecto cuenta con un CLI completo y un motor de composición (`compose up` / `compose down`) capaz de orquestar servicios complejos con bases de datos como MySQL y redirigir tráfico de red bidireccional entre el anfitrión y los contenedores.
 
