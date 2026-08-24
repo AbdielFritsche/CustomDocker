@@ -9,6 +9,8 @@ import (
 	"net"
 	"net/http"
 	"os"
+
+	"minidocker/internal/api/dto"
 )
 
 type Client struct {
@@ -71,7 +73,7 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body, out any)
 }
 
 func decodeAPIError(resp *http.Response) error {
-	var apiErr ErrorResponse
+	var apiErr dto.ErrorResponse
 	if err := json.NewDecoder(resp.Body).Decode(&apiErr); err == nil && apiErr.Error != "" {
 		return fmt.Errorf("%s", apiErr.Error)
 	}
@@ -94,16 +96,16 @@ func (c *Client) Ping(ctx context.Context) error {
 	return nil
 }
 
-func (c *Client) CreateContainer(ctx context.Context, req CreateContainerRequest) (*CreateContainerResponse, error) {
-	var out CreateContainerResponse
+func (c *Client) CreateContainer(ctx context.Context, req dto.CreateContainerRequest) (*dto.CreateContainerResponse, error) {
+	var out dto.CreateContainerResponse
 	if err := c.doJSON(ctx, http.MethodPost, "/containers", req, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
 }
 
-func (c *Client) StartContainer(ctx context.Context, id string, req StartContainerRequest) (*StartContainerResponse, error) {
-	var out StartContainerResponse
+func (c *Client) StartContainer(ctx context.Context, id string, req dto.StartContainerRequest) (*dto.StartContainerResponse, error) {
+	var out dto.StartContainerResponse
 	path := fmt.Sprintf("/containers/%s/start", id)
 	if err := c.doJSON(ctx, http.MethodPost, path, req, &out); err != nil {
 		return nil, err
@@ -112,25 +114,25 @@ func (c *Client) StartContainer(ctx context.Context, id string, req StartContain
 }
 
 func (c *Client) StopContainer(ctx context.Context, id string) error {
-	var out StopContainerResponse
+	var out dto.StopContainerResponse
 	return c.doJSON(ctx, http.MethodPost, fmt.Sprintf("/containers/%s/stop", id), nil, &out)
 }
 
 func (c *Client) DeleteContainer(ctx context.Context, id string) error {
-	var out DeleteContainerResponse
+	var out dto.DeleteContainerResponse
 	return c.doJSON(ctx, http.MethodDelete, fmt.Sprintf("/containers/%s", id), nil, &out)
 }
 
-func (c *Client) ListContainers(ctx context.Context) (*ListContainersResponse, error) {
-	var out ListContainersResponse
+func (c *Client) ListContainers(ctx context.Context) (*dto.ListContainersResponse, error) {
+	var out dto.ListContainersResponse
 	if err := c.doJSON(ctx, http.MethodGet, "/containers", nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
 }
 
-func (c *Client) InspectContainer(ctx context.Context, id string) (*ContainerView, error) {
-	var out ContainerView
+func (c *Client) InspectContainer(ctx context.Context, id string) (*dto.ContainerView, error) {
+	var out dto.ContainerView
 	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/containers/%s", id), nil, &out); err != nil {
 		return nil, err
 	}
@@ -158,8 +160,8 @@ func (c *Client) StreamLogs(ctx context.Context, id string, follow bool, w io.Wr
 	return err
 }
 
-func (c *Client) Stats(ctx context.Context, id string) (*StatsResponse, error) {
-	var out StatsResponse
+func (c *Client) Stats(ctx context.Context, id string) (*dto.StatsResponse, error) {
+	var out dto.StatsResponse
 	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/containers/%s/stats", id), nil, &out); err != nil {
 		return nil, err
 	}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"minidocker/internal/api"
+	"minidocker/internal/api/dto"
 	"minidocker/pkg/decorators"
 
 	"github.com/spf13/cobra"
@@ -39,7 +40,7 @@ func newRunCmd() *cobra.Command {
 			ctx := context.Background()
 
 			return decorators.WithCLIOutput(actionMsg, func() error {
-				req := api.CreateContainerRequest{
+				req := dto.CreateContainerRequest{
 					Name:     runName,
 					Image:    image,
 					Command:  userCommand,
@@ -56,7 +57,7 @@ func newRunCmd() *cobra.Command {
 				// 1. Modo background (-d): Iniciar vía REST asíncrono
 				if runDetach {
 					fmt.Println(created.ID)
-					_, err := client.StartContainer(ctx, created.ID, api.StartContainerRequest{
+					_, err := client.StartContainer(ctx, created.ID, dto.StartContainerRequest{
 						Command: userCommand,
 						Attach:  false,
 					})

@@ -12,6 +12,7 @@ import (
 	"syscall"
 
 	"minidocker/internal/api"
+	"minidocker/internal/api/dto"
 
 	"github.com/hashicorp/yamux"
 	"github.com/spf13/cobra"
@@ -114,7 +115,7 @@ func RunAttachClient(socketPath, containerID string) error {
 		// Enviar dimensiones iniciales
 		width, height, err := term.GetSize(fd)
 		if err == nil {
-			_ = json.NewEncoder(controlStream).Encode(api.ControlMessage{
+			_ = json.NewEncoder(controlStream).Encode(dto.ControlMessage{
 				Type: "resize",
 				Cols: uint16(width),
 				Rows: uint16(height),
@@ -130,7 +131,7 @@ func RunAttachClient(socketPath, containerID string) error {
 			for range sigChan {
 				w, h, err := term.GetSize(fd)
 				if err == nil {
-					_ = json.NewEncoder(controlStream).Encode(api.ControlMessage{
+					_ = json.NewEncoder(controlStream).Encode(dto.ControlMessage{
 						Type: "resize",
 						Cols: uint16(w),
 						Rows: uint16(h),
@@ -163,7 +164,7 @@ func RunAttachClient(socketPath, containerID string) error {
 	go func() {
 		dec := json.NewDecoder(controlStream)
 		for {
-			var msg api.ControlMessage
+			var msg dto.ControlMessage
 			if err := dec.Decode(&msg); err != nil {
 				return
 			}

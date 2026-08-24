@@ -1,13 +1,15 @@
-package api
+package handlers
 
 import (
 	"encoding/json"
 	"net/http"
 
+	"minidocker/internal/api/dto"
+
 	"github.com/hashicorp/yamux"
 )
 
-func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
+func (d *Deps) HandleAttach(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
 		id = r.URL.Query().Get("id")
@@ -15,7 +17,7 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 
 	hijacker, ok := w.(http.Hijacker)
 	if !ok {
-		s.writeError(w, http.StatusInternalServerError, "servidor no soporta hijacking de conexión")
+		writeErrorMsg(w, http.StatusInternalServerError, "servidor no soporta hijacking de conexión")
 		return
 	}
 
@@ -62,7 +64,7 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		dec := json.NewDecoder(controlStream)
 		for {
-			var msg ControlMessage
+			var msg dto.ControlMessage
 			if err := dec.Decode(&msg); err != nil {
 				return
 			}
@@ -70,11 +72,11 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	exitCode := 0
-	if err := s.mgr.StartAttached(id, stdinStream, stdoutStream, stderrStream); err != nil {
+	if err := d.Mgr.StartAttached(id, stdinStream, stdoutStream, stderrStream); err != nil {
 		exitCode = 1
 	}
 
-	_ = json.NewEncoder(controlStream).Encode(ControlMessage{
+	_ = json.NewEncoder(controlStream).Encode(dto.ControlMessage{
 		Type: "exit",
 		Code: exitCode,
 	})

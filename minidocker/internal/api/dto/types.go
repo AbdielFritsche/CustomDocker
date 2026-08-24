@@ -1,4 +1,4 @@
-package api
+package dto
 
 import (
 	"time"
@@ -6,13 +6,12 @@ import (
 	"minidocker/internal/container"
 )
 
-const (
-	DefaultSocketPath = "/var/run/minidocker.sock"
-	APIVersion        = "v1"
-)
-
 type ErrorResponse struct {
 	Error string `json:"error"`
+}
+
+type ExecRequest struct {
+	Command []string `json:"command"`
 }
 
 type CreateContainerRequest struct {
