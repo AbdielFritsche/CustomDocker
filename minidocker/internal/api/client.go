@@ -8,31 +8,36 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 )
 
-const baseURL = "http://minidockerd"
-
 type Client struct {
-	http *http.Client
+	httpClient *http.Client
+	baseURL    string
 }
 
 func NewClient(socketPath string) *Client {
 	if socketPath == "" {
+		socketPath = os.Getenv("MINIDOCKER_HOST")
+	}
+	if socketPath == "" {
 		socketPath = DefaultSocketPath
 	}
-	return &Client{
-		http: &http.Client{
-			Transport: &http.Transport{
-				DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-					var d net.Dialer
-					return d.DialContext(ctx, "unix", socketPath)
-				},
-			},
+
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			d := net.Dialer{}
+			return d.DialContext(ctx, "unix", socketPath)
 		},
+	}
+
+	return &Client{
+		httpClient: &http.Client{Transport: transport, Timeout: 0},
+		baseURL:    "http://unix/" + APIVersion,
 	}
 }
 
-func (c *Client) do(ctx context.Context, method, path string, body, out any) error {
+func (c *Client) doJSON(ctx context.Context, method, path string, body, out any) error {
 	var reader io.Reader
 	if body != nil {
 		buf, err := json.Marshal(body)
@@ -42,65 +47,121 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 		reader = bytes.NewReader(buf)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, baseURL+path, reader)
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, reader)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
+	if reader != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 
-	resp, err := c.http.Do(req)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("no se pudo contactar a minidockerd (¿está corriendo? ¿existe /var/run/minidocker.sock?): %w", err)
+		return fmt.Errorf("no se pudo contactar a minidockerd (¿está corriendo?): %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode >= 400 {
-		var apiErr ErrorResponse
-		_ = json.NewDecoder(resp.Body).Decode(&apiErr)
-		if apiErr.Error != "" {
-			return fmt.Errorf("%s", apiErr.Error)
-		}
-		return fmt.Errorf("minidockerd respondió %d", resp.StatusCode)
+	if resp.StatusCode >= 300 {
+		return decodeAPIError(resp)
 	}
+	if out == nil {
+		return nil
+	}
+	return json.NewDecoder(resp.Body).Decode(out)
+}
 
-	if out != nil {
-		return json.NewDecoder(resp.Body).Decode(out)
+func decodeAPIError(resp *http.Response) error {
+	var apiErr ErrorResponse
+	if err := json.NewDecoder(resp.Body).Decode(&apiErr); err == nil && apiErr.Error != "" {
+		return fmt.Errorf("%s", apiErr.Error)
+	}
+	return fmt.Errorf("minidockerd respondió %d", resp.StatusCode)
+}
+
+func (c *Client) Ping(ctx context.Context) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/ping", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("no se pudo contactar a minidockerd: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return decodeAPIError(resp)
 	}
 	return nil
 }
 
-func (c *Client) Create(ctx context.Context, req CreateRequest) (*CreateResponse, error) {
-	var resp CreateResponse
-	if err := c.do(ctx, http.MethodPost, "/containers", req, &resp); err != nil {
+func (c *Client) CreateContainer(ctx context.Context, req CreateContainerRequest) (*CreateContainerResponse, error) {
+	var out CreateContainerResponse
+	if err := c.doJSON(ctx, http.MethodPost, "/containers", req, &out); err != nil {
 		return nil, err
 	}
-	return &resp, nil
+	return &out, nil
 }
 
-func (c *Client) Start(ctx context.Context, idOrName string, override []string) error {
-	return c.do(ctx, http.MethodPost, "/containers/"+idOrName+"/start", StartRequest{CommandOverride: override}, nil)
-}
-
-func (c *Client) Stop(ctx context.Context, idOrName string) error {
-	return c.do(ctx, http.MethodPost, "/containers/"+idOrName+"/stop", nil, nil)
-}
-
-func (c *Client) Delete(ctx context.Context, idOrName string) error {
-	return c.do(ctx, http.MethodDelete, "/containers/"+idOrName, nil, nil)
-}
-
-func (c *Client) Ps(ctx context.Context) (*PsResponse, error) {
-	var resp PsResponse
-	if err := c.do(ctx, http.MethodGet, "/containers", nil, &resp); err != nil {
+func (c *Client) StartContainer(ctx context.Context, id string, req StartContainerRequest) (*StartContainerResponse, error) {
+	var out StartContainerResponse
+	path := fmt.Sprintf("/containers/%s/start", id)
+	if err := c.doJSON(ctx, http.MethodPost, path, req, &out); err != nil {
 		return nil, err
 	}
-	return &resp, nil
+	return &out, nil
 }
 
-func (c *Client) Stats(ctx context.Context, idOrName string) (*StatsDTO, error) {
-	var resp StatsDTO
-	if err := c.do(ctx, http.MethodGet, "/containers/"+idOrName+"/stats", nil, &resp); err != nil {
+func (c *Client) StopContainer(ctx context.Context, id string) error {
+	var out StopContainerResponse
+	return c.doJSON(ctx, http.MethodPost, fmt.Sprintf("/containers/%s/stop", id), nil, &out)
+}
+
+func (c *Client) DeleteContainer(ctx context.Context, id string) error {
+	var out DeleteContainerResponse
+	return c.doJSON(ctx, http.MethodDelete, fmt.Sprintf("/containers/%s", id), nil, &out)
+}
+
+func (c *Client) ListContainers(ctx context.Context) (*ListContainersResponse, error) {
+	var out ListContainersResponse
+	if err := c.doJSON(ctx, http.MethodGet, "/containers", nil, &out); err != nil {
 		return nil, err
 	}
-	return &resp, nil
+	return &out, nil
+}
+
+func (c *Client) InspectContainer(ctx context.Context, id string) (*ContainerView, error) {
+	var out ContainerView
+	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/containers/%s", id), nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) StreamLogs(ctx context.Context, id string, follow bool, w io.Writer) error {
+	path := fmt.Sprintf("/containers/%s/logs", id)
+	if follow {
+		path += "?follow=true"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return decodeAPIError(resp)
+	}
+	_, err = io.Copy(w, resp.Body)
+	return err
+}
+
+func (c *Client) Stats(ctx context.Context, id string) (*StatsResponse, error) {
+	var out StatsResponse
+	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/containers/%s/stats", id), nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }

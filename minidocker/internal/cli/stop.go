@@ -20,7 +20,7 @@ func newStopCmd() *cobra.Command {
 			actionMsg := fmt.Sprintf("Deteniendo contenedor [%s]", idOrName)
 
 			return decorators.WithCLIOutput(actionMsg, func() error {
-				return GetAPIClient().Stop(context.Background(), idOrName)
+				return GetAPIClient().StopContainer(context.Background(), idOrName)
 			})
 		},
 	}

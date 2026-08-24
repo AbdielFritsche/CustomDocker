@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -42,6 +41,9 @@ func RunParent(
 	customEnv []string,
 	hostPort, containerPort int,
 	bridgeName, bridgeIP, subnetCIDR, gatewayIP, requestedIP string,
+	inStream io.Reader,
+	outStream io.Writer,
+	errStream io.Writer,
 	onReady func(pid int, ip string),
 ) error {
 	if bridgeName == "" {
@@ -69,20 +71,25 @@ func RunParent(
 	// Combinar variables de entorno de forma limpia
 	cmd.Env = mergeEnviron(os.Environ(), append(customEnv, fmt.Sprintf("_MINIDOCKER_GATEWAY=%s", gatewayIP)))
 
-	logFilePath := filepath.Join("/var/lib/minidocker/containers", containerID, "container.log")
-	logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err == nil {
-		defer logFile.Close()
-		cmd.Stdout = io.MultiWriter(os.Stdout, logFile)
-		cmd.Stderr = io.MultiWriter(os.Stderr, logFile)
+	if inStream != nil {
+		cmd.Stdin = inStream
+	} else {
+		cmd.Stdin = os.Stdin
+	}
+
+	if outStream != nil {
+		cmd.Stdout = outStream
 	} else {
 		cmd.Stdout = os.Stdout
+	}
+
+	if errStream != nil {
+		cmd.Stderr = errStream
+	} else {
 		cmd.Stderr = os.Stderr
 	}
-	cmd.Stdin = os.Stdin
 
 	cmd.ExtraFiles = []*os.File{pipeReader}
-
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Cloneflags: syscall.CLONE_NEWUTS |
 			syscall.CLONE_NEWPID |
@@ -140,7 +147,7 @@ func RunParent(
 	if err := network.SetupContainerNetworkDynamic(pid, containerCIDR, bridgeName, gatewayIP); err != nil {
 		_ = cmd.Process.Kill()
 		network.CleanupNetwork(pid)
-		return fmt.Errorf("error configurando red del contenedor en bridge %s: %w", bridgeName, err)
+		return fmt.Errorf("error configurando red en bridge %s: %w", bridgeName, err)
 	}
 	defer network.CleanupNetwork(pid)
 
@@ -151,10 +158,7 @@ func RunParent(
 
 	if hostPort > 0 && containerPort > 0 {
 		proxy, err := network.StartPortProxy(hostPort, containerPort, rawIP)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Advertencia iniciando proxy: %v\n", err)
-		} else {
-			fmt.Printf("[Red] Proxy activo en :%d -> %s:%d\n", hostPort, rawIP, containerPort)
+		if err == nil {
 			defer proxy.Close()
 		}
 	}

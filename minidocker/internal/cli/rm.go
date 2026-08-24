@@ -20,7 +20,7 @@ func newRmCmd() *cobra.Command {
 			actionMsg := fmt.Sprintf("Eliminando contenedor [%s]", idOrName)
 
 			return decorators.WithCLIOutput(actionMsg, func() error {
-				return GetAPIClient().Delete(context.Background(), idOrName)
+				return GetAPIClient().DeleteContainer(context.Background(), idOrName)
 			})
 		},
 	}

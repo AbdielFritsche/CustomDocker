@@ -18,8 +18,9 @@ func main() {
 		}
 		return
 	}
+
 	// 2. Interceptar el punto de entrada interno para el subproceso hijo aislado
-	if len(os.Args) >= 3 && os.Args[1] == "__init__" {
+	if len(os.Args) >= 3 && (os.Args[1] == "init" || os.Args[1] == "__init__") {
 		rootfs := os.Args[2]
 		userCommand := os.Args[3:]
 
