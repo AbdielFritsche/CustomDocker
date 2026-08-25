@@ -81,7 +81,7 @@ sudo ./vessel compose down -f compose.yaml
 
 Para especificaciones internas, tablas de flags y guías paso a paso del kernel, consulta la documentación completa:
 
-* 📖 **[Arquitectura e Internals del Kernel](https://github.com/AbdielFritsche/CustomDocker/wiki/Architecture-Internals)**: Detalles sobre `namespaces`, `cgroups v2`, `pivot_root` y capas OverlayFS.
+* 📖 **[Arquitectura e Internals del Kernel](https://github.com/AbdielFritsche/CustomDocker/wiki/Arquitecture‐Internals)**: Detalles sobre `namespaces`, `cgroups v2`, `pivot_root` y capas OverlayFS.
 * 📖 **[Referencia Completa del CLI](https://github.com/AbdielFritsche/CustomDocker/wiki/CLI-Reference)**: Tablas de flags y subcomandos (`run`, `start`, `stop`, `exec`, `logs`, `stats`, `ps`, `rm`, `network`).
 * 📖 **[Arquitectura de Red y DNS](https://github.com/AbdielFritsche/CustomDocker/wiki/Networking-Deep-Dive)**: Conexión mediante switches `veth`, enrutamiento `iptables` y resolución local.
 * 📖 **[Pruebas y Validación Técnica](https://github.com/AbdielFritsche/CustomDocker/wiki/Testing-and-Validation)**: Pruebas de estrés de memoria, fork bombs e inmutabilidad.
