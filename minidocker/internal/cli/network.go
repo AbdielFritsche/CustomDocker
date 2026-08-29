@@ -1,8 +1,8 @@
 package cli
 
 import (
+	"context"
 	"fmt"
-	"minidocker/internal/network"
 
 	"github.com/spf13/cobra"
 )
@@ -19,16 +19,10 @@ func newNetworkCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			netName := args[0]
-			bridgeName := netName
-			if len(netName) < 3 || netName[:3] != "br_" {
-				bridgeName = "br_" + netName
-			}
-
-			if err := network.DeleteBridge(bridgeName); err != nil {
+			if err := GetAPIClient().DeleteNetwork(context.Background(), netName); err != nil {
 				return err
 			}
-
-			fmt.Printf("Red [%s] eliminada exitosamente del host.\n", bridgeName)
+			fmt.Printf("Red [%s] eliminada exitosamente del host.\n", netName)
 			return nil
 		},
 	}

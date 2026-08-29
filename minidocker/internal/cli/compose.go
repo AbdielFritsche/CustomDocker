@@ -1,9 +1,9 @@
 package cli
 
 import (
+	"context"
 	"fmt"
-	"minidocker/internal/compose"
-	"minidocker/internal/container"
+	"os"
 
 	"github.com/spf13/cobra"
 )
@@ -20,11 +20,12 @@ func newComposeCmd() *cobra.Command {
 		Use:   "up",
 		Short: "Crea y levanta los servicios definidos en el archivo YAML",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			mgr := container.NewManager()
-			engine := compose.NewEngine(mgr)
-
+			data, err := os.ReadFile(composeFile)
+			if err != nil {
+				return fmt.Errorf("error leyendo archivo compose [%s]: %w", composeFile, err)
+			}
 			fmt.Printf("Procesando archivo: %s\n", composeFile)
-			return engine.Up(composeFile)
+			return GetAPIClient().ComposeUp(context.Background(), string(data))
 		},
 	}
 
@@ -32,9 +33,11 @@ func newComposeCmd() *cobra.Command {
 		Use:   "down",
 		Short: "Detiene servicios y elimina las redes aisladas creadas",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			mgr := container.NewManager()
-			engine := compose.NewEngine(mgr)
-			return engine.Down(composeFile)
+			data, err := os.ReadFile(composeFile)
+			if err != nil {
+				return fmt.Errorf("error leyendo archivo compose [%s]: %w", composeFile, err)
+			}
+			return GetAPIClient().ComposeDown(context.Background(), string(data))
 		},
 	}
 	downCmd.Flags().StringVarP(&composeFile, "file", "f", "minidocker-compose.yml", "Ruta al archivo YAML")
@@ -42,6 +45,5 @@ func newComposeCmd() *cobra.Command {
 
 	cmd.AddCommand(downCmd)
 	cmd.AddCommand(upCmd)
-
 	return cmd
 }

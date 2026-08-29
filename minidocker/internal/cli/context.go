@@ -4,18 +4,10 @@ import (
 	"fmt"
 
 	"minidocker/internal/api"
-	"minidocker/internal/container"
 )
 
 // GlobalDataRoot almacena la ruta que vendrá de la bandera persistente en root.go
-var (
-	GlobalDataRoot   string
-	GlobalSocketPath string
-)
-
-func GetManager() *container.Manager {
-	return container.NewManager(GlobalDataRoot)
-}
+var GlobalSocketPath string
 
 func GetAPIClient() *api.Client {
 	return api.NewClient(GlobalSocketPath)

@@ -7,6 +7,22 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type ServiceConfig struct {
+	Image       string          `yaml:"image"`
+	Command     []string        `yaml:"command,omitempty"`
+	Environment []string        `yaml:"environment,omitempty"`
+	Ports       []string        `yaml:"ports,omitempty"`
+	Networks    ServiceNetworks `yaml:"networks,omitempty"`
+	MemoryMB    int64           `yaml:"memory,omitempty"`
+	PidsMax     int64           `yaml:"pids_max,omitempty"`
+}
+
+type ComposeFile struct {
+	Version  string                   `yaml:"version"`
+	Services map[string]ServiceConfig `yaml:"services"`
+	Networks map[string]NetworkDef    `yaml:"networks,omitempty"`
+}
+
 // NetworkDef define los datos de configuración de una red en la sección networks global
 type NetworkDef struct {
 	Subnet  string `yaml:"subnet,omitempty"`
@@ -45,27 +61,15 @@ func (sn *ServiceNetworks) UnmarshalYAML(value *yaml.Node) error {
 	return nil
 }
 
-type ServiceConfig struct {
-	Image       string          `yaml:"image"`
-	Command     []string        `yaml:"command,omitempty"`
-	Environment []string        `yaml:"environment,omitempty"`
-	Ports       []string        `yaml:"ports,omitempty"`
-	Networks    ServiceNetworks `yaml:"networks,omitempty"`
-	MemoryMB    int64           `yaml:"memory,omitempty"`
-	PidsMax     int64           `yaml:"pids_max,omitempty"`
-}
-
-type ComposeFile struct {
-	Version  string                   `yaml:"version"`
-	Services map[string]ServiceConfig `yaml:"services"`
-	Networks map[string]NetworkDef    `yaml:"networks,omitempty"`
-}
-
 func ParseComposeFile(path string) (*ComposeFile, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("error leyendo compose: %w", err)
 	}
+	return ParseComposeBytes(data)
+}
+
+func ParseComposeBytes(data []byte) (*ComposeFile, error) {
 	var cf ComposeFile
 	if err := yaml.Unmarshal(data, &cf); err != nil {
 		return nil, fmt.Errorf("error parseando YAML: %w", err)

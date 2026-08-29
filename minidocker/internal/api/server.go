@@ -35,17 +35,23 @@ func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	prefix := "/" + APIVersion
 
+	//POST
 	mux.HandleFunc("POST "+prefix+"/containers", s.deps.HandleCreate)
-	mux.HandleFunc("GET "+prefix+"/containers", s.deps.HandleList)
-	mux.HandleFunc("GET "+prefix+"/containers/{id}", s.deps.HandleInspect)
 	mux.HandleFunc("POST "+prefix+"/containers/{id}/start", s.deps.HandleStart)
 	mux.HandleFunc("POST "+prefix+"/containers/{id}/attach", s.deps.HandleAttach)
 	mux.HandleFunc("POST "+prefix+"/containers/{id}/exec", s.deps.HandleExec)
 	mux.HandleFunc("POST "+prefix+"/containers/{id}/stop", s.deps.HandleStop)
-	mux.HandleFunc("DELETE "+prefix+"/containers/{id}", s.deps.HandleDelete)
+	mux.HandleFunc("POST "+prefix+"/compose/up", s.deps.HandleComposeUp)
+	mux.HandleFunc("POST "+prefix+"/compose/down", s.deps.HandleComposeDown)
+	//GET
 	mux.HandleFunc("GET "+prefix+"/containers/{id}/logs", s.deps.HandleLogs)
 	mux.HandleFunc("GET "+prefix+"/containers/{id}/stats", s.deps.HandleStats)
 	mux.HandleFunc("GET "+prefix+"/ping", s.deps.HandlePing)
+	mux.HandleFunc("GET "+prefix+"/containers", s.deps.HandleList)
+	mux.HandleFunc("GET "+prefix+"/containers/{id}", s.deps.HandleInspect)
+	//DELETE
+	mux.HandleFunc("DELETE "+prefix+"/containers/{id}", s.deps.HandleDelete)
+	mux.HandleFunc("DELETE "+prefix+"/networks/{name}", s.deps.HandleNetworkDelete)
 
 	return logMiddleware(mux)
 }

@@ -14,6 +14,7 @@ func (d *Deps) HandleAttach(w http.ResponseWriter, r *http.Request) {
 	if id == "" {
 		id = r.URL.Query().Get("id")
 	}
+	cmdOverride := r.URL.Query()["cmd"]
 
 	hijacker, ok := w.(http.Hijacker)
 	if !ok {
@@ -72,7 +73,7 @@ func (d *Deps) HandleAttach(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	exitCode := 0
-	if err := d.Mgr.StartAttached(id, stdinStream, stdoutStream, stderrStream); err != nil {
+	if err := d.Mgr.StartAttached(id, cmdOverride, stdinStream, stdoutStream, stderrStream); err != nil {
 		exitCode = 1
 	}
 

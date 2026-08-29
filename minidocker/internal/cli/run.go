@@ -65,7 +65,7 @@ func newRunCmd() *cobra.Command {
 				}
 
 				// 2. Modo interactivo: Multiplexar sesión Yamux sobre el socket UNIX
-				return RunAttachClient(runHost, created.ID)
+				return RunAttachClient(runHost, created.ID, nil)
 			})
 		},
 	}

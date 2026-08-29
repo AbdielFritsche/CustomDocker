@@ -14,6 +14,14 @@ type ExecRequest struct {
 	Command []string `json:"command"`
 }
 
+type ComposeRequest struct {
+	ComposeYAML string `json:"compose_yaml"`
+}
+
+type ComposeResponse struct {
+	Status string `json:"status"`
+}
+
 type CreateContainerRequest struct {
 	Image     string   `json:"image"`
 	Command   []string `json:"command"`

@@ -1,15 +1,16 @@
 package cli
 
 import (
+	"context"
 	"fmt"
-	"minidocker/internal/container"
+
+	"minidocker/internal/api/dto"
 	"minidocker/pkg/decorators"
 
 	"github.com/spf13/cobra"
 )
 
 var (
-	createImage   string
 	createMemMB   int64
 	createPidsMax int64
 	createPort    string
@@ -31,21 +32,21 @@ func newCreateCmd() *cobra.Command {
 			actionMsg := fmt.Sprintf("Creando contenedor desde [%s]", image)
 
 			return decorators.WithCLIOutput(actionMsg, func() error {
-				opts := []container.Option{
-					container.WithMemoryLimit(createMemMB * 1024 * 1024),
-					container.WithPidsMax(createPidsMax),
-				}
-				if createName != "" {
-					opts = append(opts, container.WithName(createName))
+				req := dto.CreateContainerRequest{
+					Name:     createName,
+					Image:    image,
+					Command:  userCommand,
+					MemoryMB: createMemMB,
+					PidsMax:  createPidsMax,
+					Port:     createPort,
 				}
 
-				mgr := GetManager()
-				c, err := mgr.CreateContainer(image, userCommand, opts...)
+				created, err := GetAPIClient().CreateContainer(context.Background(), req)
 				if err != nil {
 					return err
 				}
 
-				fmt.Printf("         -> ID asignado: %s\n", c.Config.ID)
+				fmt.Printf("         -> ID asignado: %s\n", created.ID)
 				return nil
 			})
 		},

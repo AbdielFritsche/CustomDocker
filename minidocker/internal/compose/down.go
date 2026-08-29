@@ -10,11 +10,7 @@ import (
 	"github.com/vishvananda/netlink"
 )
 
-func (e *Engine) Down(composePath string) error {
-	cf, err := ParseComposeFile(composePath)
-	if err != nil {
-		return err
-	}
+func (e *Engine) Down(cf *ComposeFile) error {
 
 	// 1. Detener y eliminar los contenedores del compose
 	for serviceName := range cf.Services {

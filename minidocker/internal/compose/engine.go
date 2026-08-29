@@ -21,11 +21,7 @@ type netInfo struct {
 	subnetCIDR string
 }
 
-func (e *Engine) Up(composePath string) error {
-	cf, err := ParseComposeFile(composePath)
-	if err != nil {
-		return err
-	}
+func (e *Engine) Up(cf *ComposeFile) error {
 
 	networksMap := make(map[string]netInfo)
 	autoSubnetIndex := 20

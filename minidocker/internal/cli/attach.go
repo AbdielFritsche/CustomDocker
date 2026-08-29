@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -28,7 +29,7 @@ func newAttachCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := args[0]
-			return RunAttachClient(attachSocketPath, id)
+			return RunAttachClient(attachSocketPath, id, nil)
 		},
 	}
 
@@ -37,7 +38,7 @@ func newAttachCmd() *cobra.Command {
 }
 
 // RunAttachClient establece la conexión multiplexada con el daemon
-func RunAttachClient(socketPath, containerID string) error {
+func RunAttachClient(socketPath, containerID string, cmdOverride []string) error {
 	if socketPath == "" {
 		socketPath = api.DefaultSocketPath
 	}
@@ -49,8 +50,16 @@ func RunAttachClient(socketPath, containerID string) error {
 	}
 	defer conn.Close()
 
-	// 2. Realizar handshake HTTP Upgrade
-	req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("/%s/containers/%s/attach", api.APIVersion, containerID), nil)
+	path := fmt.Sprintf("/%s/containers/%s/attach", api.APIVersion, containerID)
+	if len(cmdOverride) > 0 {
+		q := url.Values{}
+		for _, c := range cmdOverride {
+			q.Add("cmd", c)
+		}
+		path += "?" + q.Encode()
+	}
+
+	req, err := http.NewRequest(http.MethodPost, path, nil)
 	if err != nil {
 		return fmt.Errorf("error construyendo petición: %w", err)
 	}

@@ -26,15 +26,13 @@ func newStartCmd() *cobra.Command {
 				cmdOverride = args[1:]
 			}
 
-			// Preparamos el mensaje detallado para el log
 			actionMsg := fmt.Sprintf("Iniciando contenedor existente [%s]", containerID)
 			if len(cmdOverride) > 0 {
 				actionMsg += fmt.Sprintf(" con override de comando %v", cmdOverride)
 			}
 
 			return decorators.WithCLIOutput(actionMsg, func() error {
-				mgr := GetManager()
-				return mgr.StartContainer(containerID, cmdOverride)
+				return RunAttachClient(GlobalSocketPath, containerID, cmdOverride)
 			})
 		},
 	}

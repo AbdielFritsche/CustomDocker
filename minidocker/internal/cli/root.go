@@ -27,13 +27,6 @@ func Execute() {
 func init() {
 
 	rootCmd.PersistentFlags().StringVar(
-		&GlobalDataRoot,
-		"data-root",
-		"/var/lib/minidocker/containers",
-		"Ruta base para el almacenamiento de contenedores (solo aplica a comandos aún no migrados al daemon)",
-	)
-
-	rootCmd.PersistentFlags().StringVar(
 		&GlobalSocketPath,
 		"socket",
 		api.DefaultSocketPath,

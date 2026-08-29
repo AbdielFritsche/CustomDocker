@@ -80,6 +80,49 @@ func decodeAPIError(resp *http.Response) error {
 	return fmt.Errorf("minidockerd respondió %d", resp.StatusCode)
 }
 
+func (c *Client) ComposeUp(ctx context.Context, yamlContent string) error {
+	var out dto.ComposeResponse
+	return c.doJSON(ctx, http.MethodPost, "/compose/up", dto.ComposeRequest{ComposeYAML: yamlContent}, &out)
+}
+
+func (c *Client) ComposeDown(ctx context.Context, yamlContent string) error {
+	var out dto.ComposeResponse
+	return c.doJSON(ctx, http.MethodPost, "/compose/down", dto.ComposeRequest{ComposeYAML: yamlContent}, &out)
+}
+
+func (c *Client) CreateContainer(ctx context.Context, req dto.CreateContainerRequest) (*dto.CreateContainerResponse, error) {
+	var out dto.CreateContainerResponse
+	if err := c.doJSON(ctx, http.MethodPost, "/containers", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) DeleteContainer(ctx context.Context, id string) error {
+	var out dto.DeleteContainerResponse
+	return c.doJSON(ctx, http.MethodDelete, fmt.Sprintf("/containers/%s", id), nil, &out)
+}
+
+func (c *Client) DeleteNetwork(ctx context.Context, name string) error {
+	return c.doJSON(ctx, http.MethodDelete, fmt.Sprintf("/networks/%s", name), nil, nil)
+}
+
+func (c *Client) ListContainers(ctx context.Context) (*dto.ListContainersResponse, error) {
+	var out dto.ListContainersResponse
+	if err := c.doJSON(ctx, http.MethodGet, "/containers", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) InspectContainer(ctx context.Context, id string) (*dto.ContainerView, error) {
+	var out dto.ContainerView
+	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/containers/%s", id), nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *Client) Ping(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/ping", nil)
 	if err != nil {
@@ -96,9 +139,9 @@ func (c *Client) Ping(ctx context.Context) error {
 	return nil
 }
 
-func (c *Client) CreateContainer(ctx context.Context, req dto.CreateContainerRequest) (*dto.CreateContainerResponse, error) {
-	var out dto.CreateContainerResponse
-	if err := c.doJSON(ctx, http.MethodPost, "/containers", req, &out); err != nil {
+func (c *Client) Stats(ctx context.Context, id string) (*dto.StatsResponse, error) {
+	var out dto.StatsResponse
+	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/containers/%s/stats", id), nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -116,27 +159,6 @@ func (c *Client) StartContainer(ctx context.Context, id string, req dto.StartCon
 func (c *Client) StopContainer(ctx context.Context, id string) error {
 	var out dto.StopContainerResponse
 	return c.doJSON(ctx, http.MethodPost, fmt.Sprintf("/containers/%s/stop", id), nil, &out)
-}
-
-func (c *Client) DeleteContainer(ctx context.Context, id string) error {
-	var out dto.DeleteContainerResponse
-	return c.doJSON(ctx, http.MethodDelete, fmt.Sprintf("/containers/%s", id), nil, &out)
-}
-
-func (c *Client) ListContainers(ctx context.Context) (*dto.ListContainersResponse, error) {
-	var out dto.ListContainersResponse
-	if err := c.doJSON(ctx, http.MethodGet, "/containers", nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
-func (c *Client) InspectContainer(ctx context.Context, id string) (*dto.ContainerView, error) {
-	var out dto.ContainerView
-	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/containers/%s", id), nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
 }
 
 func (c *Client) StreamLogs(ctx context.Context, id string, follow bool, w io.Writer) error {
@@ -158,12 +180,4 @@ func (c *Client) StreamLogs(ctx context.Context, id string, follow bool, w io.Wr
 	}
 	_, err = io.Copy(w, resp.Body)
 	return err
-}
-
-func (c *Client) Stats(ctx context.Context, id string) (*dto.StatsResponse, error) {
-	var out dto.StatsResponse
-	if err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/containers/%s/stats", id), nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
 }

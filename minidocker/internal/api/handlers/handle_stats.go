@@ -29,6 +29,8 @@ func (d *Deps) HandleStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	WriteJSON(w, http.StatusOK, dto.StatsResponse{
+		ID:            c.Config.ID,
+		Name:          c.Config.Name,
 		MemUsageBytes: stats.MemoryUsageBytes,
 		MemLimitBytes: stats.MemoryLimitBytes,
 		CPUUsageUsec:  stats.CPUUsageUsec,

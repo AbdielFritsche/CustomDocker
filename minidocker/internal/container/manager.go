@@ -395,7 +395,7 @@ func (m *Manager) ListContainerDirs() ([]string, error) {
 	return dirs, nil
 }
 
-func (m *Manager) StartAttached(idOrName string, inStream io.Reader, outStream io.Writer, errStream io.Writer) error {
+func (m *Manager) StartAttached(idOrName string, overrideCmd []string, inStream io.Reader, outStream io.Writer, errStream io.Writer) error {
 	c, err := m.GetContainer(idOrName)
 	if err != nil {
 		return err
@@ -403,6 +403,11 @@ func (m *Manager) StartAttached(idOrName string, inStream io.Reader, outStream i
 
 	if c.State == StateRunning && c.PID > 0 && syscall.Kill(c.PID, 0) == nil {
 		return fmt.Errorf("el contenedor [%s] ya está en ejecución (PID: %d)", c.Config.Name, c.PID)
+	}
+
+	cmdToRun := c.Config.Command
+	if len(overrideCmd) > 0 {
+		cmdToRun = overrideCmd
 	}
 
 	lowerPath := c.Config.Image
@@ -462,7 +467,7 @@ func (m *Manager) StartAttached(idOrName string, inStream io.Reader, outStream i
 		c.Config.Name,
 		mergedRootFS,
 		c.Config.Limits,
-		c.Config.Command,
+		cmdToRun,
 		c.Config.Env,
 		hp,
 		cp,
