@@ -33,6 +33,7 @@ func main() {
 	}
 
 	socketPath := flag.String("socket", api.DefaultSocketPath, "Ruta del socket UNIX de escucha")
+	socketGroup := flag.String("socket-group", "minidocker", "Grupo de sistema dueño del socket (vacío para desactivar el chown)")
 	dataRoot := flag.String("data-root", "/var/lib/minidocker/containers", "Ruta base de almacenamiento de contenedores")
 	flag.Parse()
 
@@ -51,7 +52,7 @@ func main() {
 		log.Printf("[minidockerd] reconciliacion: sin inconsistencias")
 	}
 
-	srv := api.NewServer(mgr, *socketPath)
+	srv := api.NewServer(mgr, *socketPath, *socketGroup)
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)

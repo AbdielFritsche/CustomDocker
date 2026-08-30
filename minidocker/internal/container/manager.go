@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -19,7 +20,9 @@ import (
 const defaultStateDir = "/var/lib/minidocker/containers"
 
 type Manager struct {
-	baseDir string
+	baseDir  string
+	mu       sync.Mutex
+	stopping map[string]bool
 }
 
 func NewManager(customBaseDir ...string) *Manager {
@@ -27,7 +30,23 @@ func NewManager(customBaseDir ...string) *Manager {
 	if len(customBaseDir) > 0 && customBaseDir[0] != "" {
 		dir = customBaseDir[0]
 	}
-	return &Manager{baseDir: dir}
+	return &Manager{baseDir: dir, stopping: make(map[string]bool)}
+}
+
+func (m *Manager) markStopping(id string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.stopping[id] = true
+}
+
+func (m *Manager) consumeStopping(id string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.stopping[id] {
+		delete(m.stopping, id)
+		return true
+	}
+	return false
 }
 
 func generateID() string {
@@ -239,6 +258,12 @@ func (m *Manager) StartContainer(idOrName string, overrideCmd []string) error {
 	c.StoppedAt = time.Now()
 	c.PID = 0
 	if runErr != nil {
+		if m.consumeStopping(c.Config.ID) {
+			c.State = StateStopped
+			c.ExitCode = 0
+			_ = m.saveMetadata(c)
+			return nil
+		}
 		c.State = StateFailed
 		_ = m.saveMetadata(c)
 		return runErr
@@ -263,6 +288,8 @@ func (m *Manager) StopContainer(idOrName string) error {
 	if c.State != StateRunning {
 		return fmt.Errorf("el contenedor [%s] no está en ejecución (estado: %s)", c.Config.Name, c.State)
 	}
+
+	m.markStopping(c.Config.ID)
 
 	cg := isolation.NewCgroupManager(c.Config.ID)
 	_ = cg.KillAll()
@@ -485,6 +512,12 @@ func (m *Manager) StartAttached(idOrName string, overrideCmd []string, inStream 
 	c.StoppedAt = time.Now()
 	c.PID = 0
 	if runErr != nil {
+		if m.consumeStopping(c.Config.ID) {
+			c.State = StateStopped
+			c.ExitCode = 0
+			_ = m.saveMetadata(c)
+			return nil
+		}
 		c.State = StateFailed
 		_ = m.saveMetadata(c)
 		return runErr

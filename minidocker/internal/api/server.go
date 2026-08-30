@@ -6,7 +6,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"minidocker/internal/api/handlers"
@@ -14,18 +16,20 @@ import (
 )
 
 type Server struct {
-	deps       *handlers.Deps
-	socketPath string
-	httpSrv    *http.Server
+	deps        *handlers.Deps
+	socketPath  string
+	socketGroup string
+	httpSrv     *http.Server
 }
 
-func NewServer(mgr *container.Manager, socketPath string) *Server {
+func NewServer(mgr *container.Manager, socketPath, socketGroup string) *Server {
 	if socketPath == "" {
 		socketPath = DefaultSocketPath
 	}
 	s := &Server{
-		deps:       &handlers.Deps{Mgr: mgr},
-		socketPath: socketPath,
+		deps:        &handlers.Deps{Mgr: mgr},
+		socketPath:  socketPath,
+		socketGroup: socketGroup,
 	}
 	s.httpSrv = &http.Server{Handler: s.routes()}
 	return s
@@ -64,6 +68,28 @@ func logMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+func (s *Server) secureSocket() error {
+	if err := os.Chmod(s.socketPath, 0660); err != nil {
+		return err
+	}
+	if s.socketGroup == "" {
+		return nil
+	}
+
+	grp, err := user.LookupGroup(s.socketGroup)
+	if err != nil {
+		return fmt.Errorf(
+			"grupo [%s] no existe — créalo con 'sudo groupadd %s' y agrega tu usuario con 'sudo usermod -aG %s $USER': %w",
+			s.socketGroup, s.socketGroup, s.socketGroup, err,
+		)
+	}
+	gid, err := strconv.Atoi(grp.Gid)
+	if err != nil {
+		return fmt.Errorf("gid inválido para el grupo [%s]: %w", s.socketGroup, err)
+	}
+	return os.Chown(s.socketPath, -1, gid)
+}
+
 func (s *Server) ListenAndServe() error {
 	if _, err := os.Stat(s.socketPath); err == nil {
 		if err := os.Remove(s.socketPath); err != nil {
@@ -79,8 +105,8 @@ func (s *Server) ListenAndServe() error {
 		return fmt.Errorf("error abriendo socket %s: %w", s.socketPath, err)
 	}
 
-	if err := os.Chmod(s.socketPath, 0666); err != nil {
-		log.Printf("[minidockerd] advertencia: no se pudo ajustar permisos del socket: %v", err)
+	if err := s.secureSocket(); err != nil {
+		log.Printf("[minidockerd] advertencia: no se pudieron ajustar permisos del socket: %v", err)
 	}
 
 	log.Printf("[minidockerd] escuchando en %s", s.socketPath)
