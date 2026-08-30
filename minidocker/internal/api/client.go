@@ -4,18 +4,19 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"minidocker/internal/api/dto"
 	"net"
 	"net/http"
 	"os"
-
-	"minidocker/internal/api/dto"
 )
 
 type Client struct {
 	httpClient *http.Client
 	baseURL    string
+	socketPath string
 }
 
 func NewClient(socketPath string) *Client {
@@ -39,6 +40,28 @@ func NewClient(socketPath string) *Client {
 	}
 }
 
+func classifyDialError(socketPath string, err error) error {
+	if err == nil {
+		return nil
+	}
+	switch {
+	case os.IsPermission(err):
+		return fmt.Errorf(
+			"permiso denegado al conectar con %s.\n"+
+				"  -> Agrega tu usuario al grupo del socket: sudo usermod -aG minidocker $USER\n"+
+				"  -> Luego cierra sesión o ejecuta: newgrp minidocker",
+			socketPath,
+		)
+	case os.IsNotExist(err):
+		return fmt.Errorf(
+			"no existe el socket %s. ¿Está corriendo minidockerd? (sudo minidockerd)",
+			socketPath,
+		)
+	default:
+		return fmt.Errorf("no se pudo contactar a minidockerd en %s: %w", socketPath, err)
+	}
+}
+
 func (c *Client) doJSON(ctx context.Context, method, path string, body, out any) error {
 	var reader io.Reader
 	if body != nil {
@@ -59,6 +82,10 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body, out any)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		var pathErr *os.PathError
+		if errors.As(err, &pathErr) {
+			return classifyDialError(c.socketPath, pathErr)
+		}
 		return fmt.Errorf("no se pudo contactar a minidockerd (¿está corriendo?): %w", err)
 	}
 	defer resp.Body.Close()
