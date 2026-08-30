@@ -10,6 +10,8 @@ import (
 	"syscall"
 
 	"minidocker/internal/network"
+
+	"github.com/creack/pty"
 )
 
 func mergeEnviron(baseEnv, customEnv []string) []string {
@@ -70,25 +72,6 @@ func RunParent(
 
 	// Combinar variables de entorno de forma limpia
 	cmd.Env = mergeEnviron(os.Environ(), append(customEnv, fmt.Sprintf("_MINIDOCKER_GATEWAY=%s", gatewayIP)))
-
-	if inStream != nil {
-		cmd.Stdin = inStream
-	} else {
-		cmd.Stdin = os.Stdin
-	}
-
-	if outStream != nil {
-		cmd.Stdout = outStream
-	} else {
-		cmd.Stdout = os.Stdout
-	}
-
-	if errStream != nil {
-		cmd.Stderr = errStream
-	} else {
-		cmd.Stderr = os.Stderr
-	}
-
 	cmd.ExtraFiles = []*os.File{pipeReader}
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Cloneflags: syscall.CLONE_NEWUTS |
@@ -98,10 +81,44 @@ func RunParent(
 			syscall.CLONE_NEWNET,
 	}
 
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("error al iniciar el subproceso: %w", err)
-	}
+	var ptmx *os.File
+	usePTY := inStream != nil
 
+	if usePTY {
+		var ptyErr error
+		ptmx, ptyErr = pty.Start(cmd)
+		if ptyErr != nil {
+			return fmt.Errorf("error iniciando proceso en PTY: %w", ptyErr)
+		}
+		defer func() { _ = ptmx.Close() }()
+
+		go func() {
+			_, _ = io.Copy(ptmx, inStream)
+		}()
+
+		if outStream != nil {
+			go func() {
+				_, _ = io.Copy(outStream, ptmx)
+			}()
+		}
+	} else {
+		cmd.Stdin = os.Stdin
+		if outStream != nil {
+			cmd.Stdout = outStream
+		} else {
+			cmd.Stdout = os.Stdout
+		}
+
+		if errStream != nil {
+			cmd.Stderr = errStream
+		} else {
+			cmd.Stderr = os.Stderr
+		}
+
+		if err := cmd.Start(); err != nil {
+			return fmt.Errorf("error al iniciar el subproceso: %w", err)
+		}
+	}
 	pid := cmd.Process.Pid
 
 	sigChan := make(chan os.Signal, 1)

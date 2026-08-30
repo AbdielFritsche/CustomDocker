@@ -17,8 +17,10 @@ func (d *Deps) HandleNetworkDelete(w http.ResponseWriter, r *http.Request) {
 		bridgeName = "br_" + name
 	}
 
-	if err := network.DeleteBridge(bridgeName); err != nil {
-		WriteError(w, http.StatusInternalServerError, err)
+	subnetCIDR := r.URL.Query().Get("subnet")
+
+	if err := network.DeleteBridge(bridgeName, subnetCIDR); err != nil {
+		writeErrorMsg(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
