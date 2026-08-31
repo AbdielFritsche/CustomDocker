@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 
 	"minidocker/internal/api"
@@ -54,17 +55,19 @@ func main() {
 
 	srv := api.NewServer(mgr, *socketPath, *socketGroup)
 
+	var shuttingDown atomic.Bool
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigChan
 		log.Println("[minidockerd] señal de apagado recibida, cerrando socket...")
+		shuttingDown.Store(true)
 		_ = srv.Close()
-		os.Exit(0)
 	}()
 
 	log.Printf("[minidockerd] data-root: %s", *dataRoot)
-	if err := srv.ListenAndServe(); err != nil {
+	if err := srv.ListenAndServe(); err != nil && !shuttingDown.Load() {
 		log.Fatalf("[minidockerd] error fatal: %v", err)
 	}
+	log.Println("[minidockerd] apagado limpio.")
 }

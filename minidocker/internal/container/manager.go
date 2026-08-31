@@ -252,6 +252,7 @@ func (m *Manager) StartContainer(idOrName string, overrideCmd []string) error {
 		nil,
 		outWriter,
 		errWriter,
+		nil,
 		onReady,
 	)
 
@@ -422,7 +423,14 @@ func (m *Manager) ListContainerDirs() ([]string, error) {
 	return dirs, nil
 }
 
-func (m *Manager) StartAttached(idOrName string, overrideCmd []string, inStream io.Reader, outStream io.Writer, errStream io.Writer) error {
+func (m *Manager) StartAttached(
+	idOrName string,
+	overrideCmd []string,
+	inStream io.Reader,
+	outStream io.Writer,
+	errStream io.Writer,
+	controlChan <-chan isolation.ControlEvent,
+) error {
 	c, err := m.GetContainer(idOrName)
 	if err != nil {
 		return err
@@ -506,6 +514,7 @@ func (m *Manager) StartAttached(idOrName string, overrideCmd []string, inStream 
 		inStream,
 		outStream,
 		errStream,
+		controlChan,
 		onReady,
 	)
 

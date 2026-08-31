@@ -1,15 +1,20 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
 
+	"minidocker/internal/api/dto"
 	"minidocker/pkg/decorators"
 )
 
-var startCommand string
+var (
+	startCommand string
+	startAttach  bool
+)
 
 func newStartCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -31,13 +36,23 @@ func newStartCmd() *cobra.Command {
 				actionMsg += fmt.Sprintf(" con override de comando %v", cmdOverride)
 			}
 
+			if startAttach {
+				return decorators.WithCLIOutput(actionMsg, func() error {
+					return RunAttachClient(GlobalSocketPath, containerID, cmdOverride)
+				})
+			}
+
 			return decorators.WithCLIOutput(actionMsg, func() error {
-				return RunAttachClient(GlobalSocketPath, containerID, cmdOverride)
+				_, err := GetAPIClient().StartContainer(context.Background(), containerID, dto.StartContainerRequest{
+					Command: cmdOverride,
+				})
+				return err
 			})
 		},
 	}
 
 	cmd.Flags().StringVarP(&startCommand, "command", "c", "", "Comando a ejecutar dentro del contenedor")
+	cmd.Flags().BoolVarP(&startAttach, "attach", "a", false, "Arrancar y quedar adjunto a la consola (equivalente a start + attach)")
 
 	return cmd
 }

@@ -113,7 +113,16 @@ func RunAttachClient(socketPath, containerID string, cmdOverride []string) error
 	}
 	defer stdinStream.Close()
 
-	// 6. Configurar terminal en modo Raw si es una TTY real
+	//6. Manejo de Ctrl+C / SIGTERM del propio cliente.
+	killSigChan := make(chan os.Signal, 1)
+	signal.Notify(killSigChan, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-killSigChan
+		_ = json.NewEncoder(controlStream).Encode(dto.ControlMessage{Type: "kill"})
+	}()
+	defer signal.Stop(killSigChan)
+
+	// 7. Configurar terminal en modo Raw si es una TTY real
 	fd := int(os.Stdin.Fd())
 	if term.IsTerminal(fd) {
 		oldState, err := term.MakeRaw(fd)
@@ -150,7 +159,7 @@ func RunAttachClient(socketPath, containerID string, cmdOverride []string) error
 		}()
 	}
 
-	// 7. Transferencia bidireccional
+	// 8. Transferencia bidireccional
 	errChan := make(chan error, 3)
 
 	go func() {

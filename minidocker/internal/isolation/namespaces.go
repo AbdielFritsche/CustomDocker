@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"os/signal"
 	"strings"
 	"syscall"
 
@@ -13,6 +12,12 @@ import (
 
 	"github.com/creack/pty"
 )
+
+type ControlEvent struct {
+	Type string // "resize" | "kill"
+	Cols uint16
+	Rows uint16
+}
 
 func mergeEnviron(baseEnv, customEnv []string) []string {
 	envMap := make(map[string]string)
@@ -46,6 +51,7 @@ func RunParent(
 	inStream io.Reader,
 	outStream io.Writer,
 	errStream io.Writer,
+	controlChan <-chan ControlEvent,
 	onReady func(pid int, ip string),
 ) error {
 	if bridgeName == "" {
@@ -121,16 +127,21 @@ func RunParent(
 	}
 	pid := cmd.Process.Pid
 
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		for sig := range sigChan {
-			if cmd.Process != nil {
-				_ = syscall.Kill(pid, sig.(syscall.Signal))
+	if controlChan != nil {
+		go func() {
+			for ev := range controlChan {
+				switch ev.Type {
+				case "resize":
+					if usePTY && ptmx != nil && ev.Cols > 0 && ev.Rows > 0 {
+						_ = pty.Setsize(ptmx, &pty.Winsize{Cols: ev.Cols, Rows: ev.Rows})
+					}
+				case "kill":
+					_ = syscall.Kill(-pid, syscall.SIGKILL)
+					_ = syscall.Kill(pid, syscall.SIGKILL)
+				}
 			}
-		}
-	}()
-	defer signal.Stop(sigChan)
+		}()
+	}
 
 	cg := NewCgroupManager(containerID)
 	if err := cg.Apply(pid, limits); err != nil {

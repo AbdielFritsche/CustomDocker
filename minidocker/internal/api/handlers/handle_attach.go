@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"minidocker/internal/api/dto"
+	"minidocker/internal/isolation"
 
 	"github.com/hashicorp/yamux"
 )
@@ -62,18 +63,27 @@ func (d *Deps) HandleAttach(w http.ResponseWriter, r *http.Request) {
 	}
 	defer stdinStream.Close()
 
+	controlChan := make(chan isolation.ControlEvent, 4)
+
 	go func() {
+		defer close(controlChan)
 		dec := json.NewDecoder(controlStream)
 		for {
 			var msg dto.ControlMessage
 			if err := dec.Decode(&msg); err != nil {
 				return
 			}
+			switch msg.Type {
+			case "resize":
+				controlChan <- isolation.ControlEvent{Type: "resize", Cols: msg.Cols, Rows: msg.Rows}
+			case "kill":
+				controlChan <- isolation.ControlEvent{Type: "kill"}
+			}
 		}
 	}()
 
 	exitCode := 0
-	if err := d.Mgr.StartAttached(id, cmdOverride, stdinStream, stdoutStream, stderrStream); err != nil {
+	if err := d.Mgr.StartAttached(id, cmdOverride, stdinStream, stdoutStream, stderrStream, controlChan); err != nil {
 		exitCode = 1
 	}
 
